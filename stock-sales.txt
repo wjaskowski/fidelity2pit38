@@ -1,0 +1,2 @@
+Date sold or transferred	Date acquired	Quantity	Cost basis	Proceeds	Gain/loss	Stock source
+Dec-18-2024	Dec-16-2024	23.0000	whatever	whatever	whatever	RS

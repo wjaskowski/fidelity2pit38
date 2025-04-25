@@ -24,11 +24,18 @@ Poz. 29 (Dochód, o którym mowa w art. 30b ust.5 i 5b): 5977.76 PLN
 Poz. 30 (Podatek zapłacony za granicą od dochodów z poz. 29): 7.34 PLN
 ```
 
+### Non-FIFO
+
+If instead of FIFO, you prefere to use information about the specific stocks you sold use
+```sh
+fidelity2pit38.py Transaction\ history.csv --method custom --custom_summary stock-sales.txt
+```
+The stock-sales.txt file can be created by copy&paste from Fidelity -> Statements / Records -> Custom Transaction Summary -> (Select year) View Transactions -> Stock Sales (select & copy the whole table)
+
+
 ## Limitations (TODO)
-- FIFO method only
 - Doesn't take into consideration previous years
 
 ## DISCLAIMER
-This script is provided "as is" for informational purposes only.
-I am not a certified accountant or tax advisor, and this script does not constitute professional tax advice.
-Use at your own risk; always consult a qualified professional for personalized guidance.
+This script is provided "as is" for informational purposes only. 
+I am not a certified accountant or tax advisor, and this script does not constitute professional tax advice. As I consulted AI to write this script, it might be worse than random. Thus, use at your own risk; always consult a qualified professional for personalized guidance.
