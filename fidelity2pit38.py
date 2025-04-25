@@ -63,27 +63,19 @@ for d in tx['trade_date']:
         settlements.append(d + cbd1)
 tx['settlement_date'] = settlements
 
-# 4. Determine rate lookup date (last business day before settlement_date)
-#    and merge rates accordingly
-# Compute the rate lookup date per transaction (one Polish business day before settlement_date)
-tx['rate_lookup_date'] = tx['settlement_date'] - CustomBusinessDay(calendar=pol_cal)
-# Sort by lookup date for asof merge
-tx_sorted = tx.sort_values('rate_lookup_date').reset_index(drop=True)
+# 4. Merge rates: last available on or before settlement_date
+tx_sorted = tx.sort_values('settlement_date').reset_index(drop=True)
 rates_sorted = nbp_rates.sort_values('date').reset_index(drop=True)
-# Use merge_asof to find rate on or before rate_lookup_date
-df_merged = pd.merge_asof(
+merged = pd.merge_asof(
     tx_sorted,
     rates_sorted.rename(columns={'date': 'rate_date'}),
-    left_on='rate_lookup_date', right_on='rate_date',
+    left_on='settlement_date', right_on='rate_date',
     direction='backward'
 )
-missing = df_merged['rate'].isna().sum()
+missing = merged['rate'].isna().sum()
 if missing:
-    logging.error(f"{missing} transactions missing exchange rate for lookup date.")
-# Calculate PLN amounts using correct rate
-df_merged['amount_pln'] = df_merged['amount_usd'] * df_merged['rate']
-# Use df_merged going forward
-merged = df_merged
+    logging.error(f"{missing} transactions missing exchange rate.")
+merged['amount_pln'] = merged['amount_usd'] * merged['rate']
 
 # 5. Process based on chosen method
 total_proceeds = total_costs = total_gain = 0.0
