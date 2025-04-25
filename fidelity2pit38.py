@@ -63,13 +63,17 @@ for d in tx['trade_date']:
         settlements.append(d + cbd1)
 tx['settlement_date'] = settlements
 
-# 4. Merge rates: last available on or before settlement_date
-tx_sorted = tx.sort_values('settlement_date').reset_index(drop=True)
+# 4. Assign rate_date = last business day before settlement_date
+#    to comply with art.11a PIT: use NBP rate from the business day preceding the revenue date
+tx['rate_date'] = tx['settlement_date'] - cbd1
+
+# 5. Merge rates: last available on or before rate_date
+tx_sorted = tx.sort_values('rate_date').reset_index(drop=True)
 rates_sorted = nbp_rates.sort_values('date').reset_index(drop=True)
 merged = pd.merge_asof(
     tx_sorted,
     rates_sorted.rename(columns={'date': 'rate_date'}),
-    left_on='settlement_date', right_on='rate_date',
+    left_on='rate_date', right_on='rate_date',
     direction='backward'
 )
 missing = merged['rate'].isna().sum()
@@ -77,7 +81,7 @@ if missing:
     logging.error(f"{missing} transactions missing exchange rate.")
 merged['amount_pln'] = merged['amount_usd'] * merged['rate']
 
-# 5. Process based on chosen method
+# 6. Process based on chosen method
 total_proceeds = total_costs = total_gain = 0.0
 if args.method == 'fifo':
     # FIFO matching
@@ -106,7 +110,7 @@ elif args.method == 'custom':
     if not args.custom_summary:
         parser.error("--custom_summary is required when method=custom")
     # Read custom summary TXT for sale and acquisition dates
-    custom = pd.read_csv(args.custom_summary, sep='	', engine='python')
+    custom = pd.read_csv(args.custom_summary, sep='\t', engine='python')
     # Parse dates and quantity
     custom['Date sold'] = pd.to_datetime(
         custom['Date sold or transferred'], format='%b-%d-%Y', errors='coerce')
@@ -154,7 +158,7 @@ elif args.method == 'custom':
     total_gain = round(total_proceeds - total_costs, 2)
     logging.info(f"Custom (by specific lots): matched {len(allocs)} lots; Gain PLN: {total_gain:.2f}")
 
-# 6. Dividends & foreign withholding Dividends & foreign withholding & foreign withholding (unchanged)
+# 7. Dividends & foreign withholding (unchanged)
 gross_div = merged[merged['Transaction type']=='DIVIDEND RECEIVED']['amount_pln'].sum()
 reinv_div = merged[merged['Transaction type'].str.contains('REINVESTMENT', na=False)]['amount_pln'].sum()
 total_dividends = gross_div + reinv_div
@@ -163,7 +167,7 @@ wk = -merged[merged['Transaction type'].str.contains('NON-RESIDENT TAX KKR WITH-
 foreign_tax = round(wd + wk, 2)
 logging.info(f"Dividends PLN: {total_dividends:.2f}; Foreign tax PLN: {foreign_tax:.2f}")
 
-# 7. PIT-38 and PIT-ZG fields
+# 8. PIT-38 and PIT-ZG fields
 poz22 = round(total_proceeds + total_dividends, 2)
 poz23 = round(total_costs, 2)
 poz26 = round(poz22 - poz23, 2)
@@ -176,7 +180,7 @@ tax_final = int(max(raw_tax_due, 0) + 0.5)
 pitzg_poz29 = total_gain
 pitzg_poz30 = foreign_tax
 
-# 8. Output
+# 9. Output
 print("FINAL TAX SUMMARY:")
 print(f"Poz. 22 (Przychód): {poz22:.2f} PLN")
 print(f"Poz. 23 (Koszty uzyskania): {poz23:.2f} PLN")
