@@ -4,11 +4,11 @@
 
 import argparse
 import pandas as pd
+import logging
+from typing import List, Optional, Tuple
 from pandas.tseries.holiday import USFederalHolidayCalendar
 from pandas.tseries.offsets import CustomBusinessDay
 from workalendar.europe import Poland
-import logging
-from typing import List, Optional, Tuple
 
 # constant for switch from T+2 to T+1
 SWITCH_DATE = pd.Timestamp('2024-05-28')
@@ -29,33 +29,25 @@ def load_nbp_rates(urls: List[str]) -> pd.DataFrame:
 
 def calculate_settlement_dates(trade_dates: pd.Series, tx_types: pd.Series) -> pd.Series:
     """
-    Calculate settlement dates:
-      - MARKET TRADES (YOU BOUGHT, YOU SOLD, ESPP, RSU): apply T+2 before SWITCH_DATE, T+1 after, using US calendar
-      - CORPORATE ACTIONS & CASH EVENTS (dividends, withholding taxes, fees, reinvestments, SPP credits): settlement = trade_date
+    Calculate settlement_date:
+      - MARKET TRADES (YOU BOUGHT, YOU SOLD, ESPP): T+2 before SWITCH_DATE, T+1 after, using USFed calendar
+      - CORPORATE ACTIONS & CASH EVENTS (RSU, dividends, fees, reinvestments, SPP credits): settlement = trade_date
     """
-    # US business days calendars for T+1 and T+2
     us_bd1 = CustomBusinessDay(calendar=USFederalHolidayCalendar(), n=1)
     us_bd2 = CustomBusinessDay(calendar=USFederalHolidayCalendar(), n=2)
 
     settlements: List[Optional[pd.Timestamp]] = []
-
     for d, ttype in zip(trade_dates, tx_types):
         if pd.isna(d):
             settlements.append(pd.NaT)
             continue
-
-        # Identify market trades
-        market_tags = ['YOU BOUGHT', 'YOU SOLD', 'ESPP', 'RSU']
+        market_tags = ['YOU BOUGHT', 'YOU SOLD', 'ESPP']
         if any(tag in ttype for tag in market_tags):
-            # apply T+2 until SWITCH_DATE, then T+1
-            if d < SWITCH_DATE:
-                settlements.append(d + us_bd2)
-            else:
-                settlements.append(d + us_bd1)
+            # T+2 before SWITCH_DATE, T+1 after
+            settlements.append(d + (us_bd2 if d < SWITCH_DATE else us_bd1))
         else:
             # corporate actions & cash events: immediate settlement
             settlements.append(d)
-
     return pd.Series(settlements, index=trade_dates.index)
 
 def calculate_rate_dates(settlement_dates: pd.Series) -> pd.Series:
@@ -90,58 +82,87 @@ def process_fifo(merged: pd.DataFrame) -> Tuple[float, float, float]:
             lot = buys.loc[idx]
             match = min(qty, lot['remaining'])
             cost_per = (-lot['amount_pln']) / lot['shares'] if lot['shares'] else 0
-            proceeds = round(match * price_per, 2)
-            cost = round(match * cost_per, 2)
-            allocs.append({'proceeds': proceeds, 'cost': cost})
+            allocs.append({
+                'proceeds': round(match * price_per, 2),
+                'cost':     round(match * cost_per,   2)
+            })
             buys.at[idx, 'remaining'] -= match
             qty -= match
     total_proceeds = sum(a['proceeds'] for a in allocs)
-    total_costs = sum(a['cost'] for a in allocs)
-    total_gain = round(total_proceeds - total_costs, 2)
+    total_costs    = sum(a['cost']     for a in allocs)
+    total_gain     = round(total_proceeds - total_costs, 2)
     logging.info(f"FIFO: matched {len(allocs)} lots; Gain PLN: {total_gain:.2f}")
     return total_proceeds, total_costs, total_gain
 
 def process_custom(merged: pd.DataFrame, custom_summary_path: str) -> Tuple[float, float, float]:
-    """Custom matching based on provided summary TXT."""
-    custom = pd.read_csv(custom_summary_path, sep='\t', engine='python')
-    custom['Date sold'] = pd.to_datetime(custom['Date sold or transferred'], format='%b-%d-%Y', errors='coerce')
-    custom['Date acquired'] = pd.to_datetime(custom['Date acquired'], format='%b-%d-%Y', errors='coerce')
-    custom['Quantity'] = pd.to_numeric(custom['Quantity'], errors='coerce')
+    """
+    Custom matching based on provided summary TXT:
+      - ESPP (source 'SP'): cost from transaction history
+      - RSU  (source 'RS'): cost = 0
+    """
+    # normalize dates for matching
     merged['trade_date_norm'] = merged['trade_date'].dt.normalize()
+    merged['settlement_norm'] = merged['settlement_date'].dt.normalize()
+
+    custom = pd.read_csv(custom_summary_path, sep='\t', engine='python')
+    custom['Date sold']     = pd.to_datetime(custom['Date sold or transferred'], format='%b-%d-%Y', errors='coerce')
+    custom['Date acquired'] = pd.to_datetime(custom['Date acquired'],              format='%b-%d-%Y', errors='coerce')
+    custom['Quantity']      = pd.to_numeric(custom['Quantity'],                    errors='coerce')
 
     allocs = []
     for _, row in custom.iterrows():
         sale_date = row['Date sold'].normalize()
-        acq_date = row['Date acquired'].normalize()
-        qty = row['Quantity']
-        source = row.get('Stock source')
+        acq_date  = row['Date acquired'].normalize()
+        qty       = row['Quantity']
+        source    = row.get('Stock source')
 
-        sale_tx = merged[(merged['trade_date_norm'] == sale_date)
-                         & merged['Transaction type'].str.contains('YOU SOLD', na=False)]
+        # match sale by trade_date or settlement_date
+        sale_tx = merged[
+            (merged['trade_date_norm'] == sale_date) &
+            merged['Transaction type'].str.contains('YOU SOLD', na=False)
+        ]
+        if sale_tx.empty:
+            sale_tx = merged[
+                (merged['settlement_norm'] == sale_date) &
+                merged['Transaction type'].str.contains('YOU SOLD', na=False)
+            ]
         if sale_tx.empty:
             logging.error(f"No sale record found for {sale_date}")
             continue
         sale = sale_tx.iloc[0]
-        price_per = sale['amount_pln'] / abs(sale['shares'])
-        proceeds = round(qty * price_per, 2)
+        price_per = sale['amount_pln'] / abs(sale['shares']) if sale['shares'] else 0
+        proceeds   = round(qty * price_per, 2)
 
-        buy_tx = merged[(merged['trade_date_norm'] == acq_date)
-                        & merged['Transaction type'].str.contains('YOU BOUGHT', na=False)]
+        # determine cost
         if source == 'RS':
-            buy_tx = buy_tx[buy_tx['Transaction type'].str.contains('RSU', na=False)]
-        elif source == 'SP':
-            buy_tx = buy_tx[buy_tx['Transaction type'].str.contains('ESPP', na=False)]
-        if buy_tx.empty:
-            logging.error(f"No buy record found for {acq_date} (source={source})")
-            continue
-        buy = buy_tx.iloc[0]
-        cost_per = (-buy['amount_pln']) / buy['shares']
-        cost = round(qty * cost_per, 2)
+            cost = 0.0
+        else:
+            # ESPP: match buy by trade_date or settlement_date
+            buy_tx = merged[
+                (merged['trade_date_norm'] == acq_date) &
+                merged['Transaction type'].str.contains('YOU BOUGHT', na=False)
+            ]
+            if source == 'SP':
+                buy_tx = buy_tx[buy_tx['Transaction type'].str.contains('ESPP', na=False)]
+            if buy_tx.empty:
+                buy_tx = merged[
+                    (merged['settlement_norm'] == acq_date) &
+                    merged['Transaction type'].str.contains('YOU BOUGHT', na=False)
+                ]
+                if source == 'SP':
+                    buy_tx = buy_tx[buy_tx['Transaction type'].str.contains('ESPP', na=False)]
+            if buy_tx.empty:
+                logging.error(f"No buy record found for {acq_date} (source={source})")
+                continue
+            buy      = buy_tx.iloc[0]
+            cost_per = (-buy['amount_pln']) / buy['shares'] if buy['shares'] else 0
+            cost     = round(qty * cost_per, 2)
+
         allocs.append({'proceeds': proceeds, 'cost': cost})
 
     total_proceeds = sum(a['proceeds'] for a in allocs)
-    total_costs = sum(a['cost'] for a in allocs)
-    total_gain = round(total_proceeds - total_costs, 2)
+    total_costs    = sum(a['cost']     for a in allocs)
+    total_gain     = round(total_proceeds - total_costs, 2)
     logging.info(f"Custom (by specific lots): matched {len(allocs)} lots; Gain PLN: {total_gain:.2f}")
     return total_proceeds, total_costs, total_gain
 
@@ -180,9 +201,9 @@ def main() -> None:
     tx_raw = pd.read_csv(args.tx_csv)
     tx = tx_raw.copy()
     tx['Transaction type'] = tx['Transaction type'].astype(str).str.split(';').str[0]
-    tx['trade_date'] = pd.to_datetime(tx['Transaction date'], format='%b-%d-%Y', errors='coerce')
-    tx['shares'] = pd.to_numeric(tx['Shares'], errors='coerce')
-    tx['amount_usd'] = pd.to_numeric(tx['Amount'].str.replace('[$,]', '', regex=True), errors='coerce')
+    tx['trade_date']       = pd.to_datetime(tx['Transaction date'], format='%b-%d-%Y', errors='coerce')
+    tx['shares']           = pd.to_numeric(tx['Shares'], errors='coerce')
+    tx['amount_usd']       = pd.to_numeric(tx['Amount'].str.replace('[$,]', '', regex=True), errors='coerce')
 
     # 3. Calculate settlement dates with updated rules
     tx['settlement_date'] = calculate_settlement_dates(tx['trade_date'], tx['Transaction type'])
