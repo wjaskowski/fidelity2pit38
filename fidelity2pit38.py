@@ -8,14 +8,18 @@ from pandas.tseries.holiday import USFederalHolidayCalendar
 from pandas.tseries.offsets import CustomBusinessDay
 from workalendar.europe import Poland
 import logging
+from typing import List, Tuple, Optional
+
+# Switch to T+1 on and after this date
+SWITCH_DATE: pd.Timestamp = pd.Timestamp('2024-05-28')
 
 
-def load_nbp_rates(urls):
+def load_nbp_rates(urls: List[str]) -> pd.DataFrame:
     """
     Load and concatenate NBP USD/PLN rates from given archive URLs.
     Returns DataFrame with 'date' and 'rate'.
     """
-    rates = []
+    rates: List[pd.DataFrame] = []
     for url in urls:
         df = pd.read_csv(url, sep=';', encoding='cp1250', header=0, dtype=str)
         df = df[df['data'].str.match(r"\d{8}", na=False)]
@@ -28,33 +32,33 @@ def load_nbp_rates(urls):
     return rates_df
 
 
-def calculate_settlement_dates(trade_dates, switch_date):
+def calculate_settlement_dates(trade_dates: pd.Series) -> List[Optional[pd.Timestamp]]:
     """
     Calculate settlement dates for US equity trades.
-    Before switch_date: T+2, after: T+1, using US Federal holidays.
+    Before SWITCH_DATE: T+2, on/after: T+1, using US Federal holidays.
     """
     us_bd1 = CustomBusinessDay(calendar=USFederalHolidayCalendar(), n=1)
     us_bd2 = CustomBusinessDay(calendar=USFederalHolidayCalendar(), n=2)
-    settlements = []
+    settlements: List[Optional[pd.Timestamp]] = []
     for d in trade_dates:
         if pd.isna(d):
             settlements.append(pd.NaT)
-        elif d < switch_date:
+        elif d < SWITCH_DATE:
             settlements.append(d + us_bd2)
         else:
             settlements.append(d + us_bd1)
     return settlements
 
 
-def calculate_rate_dates(settlement_dates):
+def calculate_rate_dates(settlement_dates: List[Optional[pd.Timestamp]]) -> List[Optional[pd.Timestamp]]:
     """
     Calculate rate_date as the previous Polish business day before settlement_date.
     """
     pl_bd1 = CustomBusinessDay(calendar=Poland(), n=1)
-    return [sd - pl_bd1 if not pd.isna(sd) else pd.NaT for sd in settlement_dates]
+    return [sd - pl_bd1 if sd is not None and not pd.isna(sd) else pd.NaT for sd in settlement_dates]
 
 
-def merge_with_rates(tx_df, rates_df):
+def merge_with_rates(tx_df: pd.DataFrame, rates_df: pd.DataFrame) -> pd.DataFrame:
     """
     Merge transaction DataFrame with exchange rates by asof on 'rate_date'.
     """
@@ -66,14 +70,14 @@ def merge_with_rates(tx_df, rates_df):
         on='rate_date',
         direction='backward'
     )
-    missing = merged['rate'].isna().sum()
+    missing: int = merged['rate'].isna().sum()
     if missing:
         logging.error(f"{missing} transactions missing exchange rate.")
     merged['amount_pln'] = merged['amount_usd'] * merged['rate']
     return merged
 
 
-def process_fifo(merged):
+def process_fifo(merged: pd.DataFrame) -> Tuple[float, float, float]:
     """
     Compute FIFO-based proceeds, costs, and total gain.
     Returns tuple (total_proceeds, total_costs, total_gain).
@@ -81,7 +85,7 @@ def process_fifo(merged):
     buys = merged[merged['Transaction type'].str.contains('YOU BOUGHT', na=False)].sort_values('settlement_date').copy()
     sells = merged[merged['Transaction type'].str.contains('YOU SOLD', na=False)].sort_values('settlement_date').copy()
     buys['remaining'] = buys['shares']
-    allocs = []
+    allocs: List[dict] = []
     for _, sale in sells.iterrows():
         qty = abs(sale['shares'])
         price_per = sale['amount_pln'] / qty if qty else 0
@@ -95,14 +99,14 @@ def process_fifo(merged):
             allocs.append({'proceeds': proceeds, 'cost': cost})
             buys.at[idx, 'remaining'] -= match_qty
             qty -= match_qty
-    total_proceeds = sum(a['proceeds'] for a in allocs)
-    total_costs = sum(a['cost'] for a in allocs)
-    total_gain = round(total_proceeds - total_costs, 2)
+    total_proceeds: float = sum(a['proceeds'] for a in allocs)
+    total_costs: float = sum(a['cost'] for a in allocs)
+    total_gain: float = round(total_proceeds - total_costs, 2)
     logging.info(f"FIFO: matched {len(allocs)} lots; Gain PLN: {total_gain:.2f}")
     return total_proceeds, total_costs, total_gain
 
 
-def process_custom(merged, custom_summary_path):
+def process_custom(merged: pd.DataFrame, custom_summary_path: str) -> Tuple[float, float, float]:
     """
     Compute proceeds, costs, and gain based on custom summary matching.
     Returns tuple (total_proceeds, total_costs, total_gain).
@@ -112,7 +116,7 @@ def process_custom(merged, custom_summary_path):
     custom['Date acquired'] = pd.to_datetime(custom['Date acquired'], format='%b-%d-%Y', errors='coerce').dt.normalize()
     custom['Quantity'] = pd.to_numeric(custom['Quantity'], errors='coerce')
     merged['trade_date_norm'] = merged['trade_date'].dt.normalize()
-    allocs = []
+    allocs: List[dict] = []
     for _, row in custom.iterrows():
         sale_tx = merged[(merged['trade_date_norm'] == row['Date sold']) & merged['Transaction type'].str.contains('YOU SOLD', na=False)]
         if sale_tx.empty:
@@ -129,29 +133,29 @@ def process_custom(merged, custom_summary_path):
         cost_per = (-buy['amount_pln']) / buy['shares']
         cost = round(row['Quantity'] * cost_per, 2)
         allocs.append({'proceeds': proceeds, 'cost': cost})
-    total_proceeds = sum(a['proceeds'] for a in allocs)
-    total_costs = sum(a['cost'] for a in allocs)
-    total_gain = round(total_proceeds - total_costs, 2)
+    total_proceeds: float = sum(a['proceeds'] for a in allocs)
+    total_costs: float = sum(a['cost'] for a in allocs)
+    total_gain: float = round(total_proceeds - total_costs, 2)
     logging.info(f"Custom: matched {len(allocs)} lots; Gain PLN: {total_gain:.2f}")
     return total_proceeds, total_costs, total_gain
 
 
-def compute_dividends_and_tax(merged):
+def compute_dividends_and_tax(merged: pd.DataFrame) -> Tuple[float, float]:
     """
     Compute total dividends and foreign withholding tax.
     Returns tuple (total_dividends, foreign_tax).
     """
-    gross_div = merged.loc[merged['Transaction type'] == 'DIVIDEND RECEIVED', 'amount_pln'].sum()
-    reinv_div = merged.loc[merged['Transaction type'].str.contains('REINVESTMENT', na=False), 'amount_pln'].sum()
-    total_div = gross_div + reinv_div
-    wd = -merged.loc[merged['Transaction type'] == 'NON-RESIDENT TAX DIVIDEND RECEIVED', 'amount_pln'].sum()
-    wk = -merged.loc[merged['Transaction type'].str.contains('NON-RESIDENT TAX KKR WITH-HOLDING PROCESSING', na=False), 'amount_pln'].sum()
-    foreign_tax = round(wd + wk, 2)
+    gross_div: float = merged.loc[merged['Transaction type'] == 'DIVIDEND RECEIVED', 'amount_pln'].sum()
+    reinv_div: float = merged.loc[merged['Transaction type'].str.contains('REINVESTMENT', na=False), 'amount_pln'].sum()
+    total_div: float = gross_div + reinv_div
+    wd: float = -merged.loc[merged['Transaction type'] == 'NON-RESIDENT TAX DIVIDEND RECEIVED', 'amount_pln'].sum()
+    wk: float = -merged.loc[merged['Transaction type'].str.contains('NON-RESIDENT TAX KKR WITH-HOLDING PROCESSING', na=False), 'amount_pln'].sum()
+    foreign_tax: float = round(wd + wk, 2)
     logging.info(f"Dividends PLN: {total_div:.2f}; Foreign tax PLN: {foreign_tax:.2f}")
     return total_div, foreign_tax
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description='Compute PIT-38 summary from Fidelity transactions')
     parser.add_argument('tx_csv', help='Path to the transaction history CSV file')
     parser.add_argument('--method', choices=['fifo', 'custom'], default='fifo', help='Use FIFO (default) or custom summary')
@@ -168,19 +172,18 @@ def main():
     tx['amount_usd'] = pd.to_numeric(tx['Amount'].str.replace('[$,]', '', regex=True), errors='coerce')
 
     # Exchange rates
-    NBP_RATE_URLS = [
+    NBP_RATE_URLS: List[str] = [
         "https://static.nbp.pl/dane/kursy/Archiwum/archiwum_tab_a_2024.csv",
         # add more URLs for other years
     ]
-    nbp_rates = load_nbp_rates(NBP_RATE_URLS)
+    nbp_rates: pd.DataFrame = load_nbp_rates(NBP_RATE_URLS)
 
     # Settlement and rate dates
-    switch_date = pd.Timestamp('2024-05-28')
-    tx['settlement_date'] = calculate_settlement_dates(tx['trade_date'], switch_date)
+    tx['settlement_date'] = calculate_settlement_dates(tx['trade_date'])
     tx['rate_date'] = calculate_rate_dates(tx['settlement_date'])
 
     # Merge rates
-    merged = merge_with_rates(tx, nbp_rates)
+    merged: pd.DataFrame = merge_with_rates(tx, nbp_rates)
 
     # Choose method
     if args.method == 'fifo':
@@ -218,7 +221,7 @@ def main():
     print(f"Poz. 33 (Podatek należny): {tax_final:.2f} PLN")
     print("\nPIT-ZG:")
     print(f"Poz. 29 (Dochód, o którym mowa w art. 30b ust.5 i 5b): {pitzg_poz29:.2f} PLN")
-    print(f"Poz. 30 (Podatek zapłacony za granicą od dochodów z poz. 29): {pitzg_poz30:.2f} PLN")
+    print(f"Poz. 30 (Podatek zapłacony za granicą od dochodów z poz. 29): {pitzg_poz30:.2f}")
 
 
 if __name__ == '__main__':
