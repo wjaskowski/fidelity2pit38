@@ -239,8 +239,11 @@ def main() -> None:
     raw_tax_due = poz31 - poz32
     tax_final = int(max(raw_tax_due, 0) + 0.5)
 
+    pitzg_poz29 = total_gain
+    pitzg_poz30 = foreign_tax
+
     # 10. Output results
-    print("FINAL TAX SUMMARY:")
+    print(f"\n\nPIT-38 for year {args.year}:")
     print(f"Poz. 22 (Przychód): {poz22:.2f} PLN")
     print(f"Poz. 23 (Koszty uzyskania): {poz23:.2f} PLN")
     print(f"Poz. 26 (Dochód): {poz26:.2f} PLN")
@@ -249,6 +252,10 @@ def main() -> None:
     print(f"Poz. 31 (Podatek od dochodów z poz. 29): {poz31:.2f} PLN")
     print(f"Poz. 32 (Podatek zapłacony za granicą): {poz32:.2f} PLN")
     print(f"Poz. 33 (Podatek należny): {tax_final:.2f} PLN")
+
+    print("\nPIT-ZG:")
+    print(f"Poz. 29 (Dochód, o którym mowa w art. 30b ust.5 i 5b): {pitzg_poz29:.2f} PLN")
+    print(f"Poz. 30 (Podatek zapłacony za granicą od dochodów z poz. 29): {pitzg_poz30:.2f} PLN")
 
 if __name__ == "__main__":
     main()
