@@ -160,6 +160,7 @@ def main() -> None:
     parser.add_argument('tx_csv', help='Path to the transaction history CSV file')
     parser.add_argument('--method', choices=['fifo', 'custom'], default='fifo', help='Use FIFO (default) or custom summary')
     parser.add_argument('--custom_summary', help='Path to custom transaction summary (TXT) for method=custom')
+    parser.add_argument('--year', type=int, default=2024, help='Tax year for the report (default: 2024)')
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
@@ -174,16 +175,19 @@ def main() -> None:
     # Exchange rates
     NBP_RATE_URLS: List[str] = [
         "https://static.nbp.pl/dane/kursy/Archiwum/archiwum_tab_a_2024.csv",
-        # add more URLs for other years
     ]
-    nbp_rates: pd.DataFrame = load_nbp_rates(NBP_RATE_URLS)
+    nbp_rates = load_nbp_rates(NBP_RATE_URLS)
 
     # Settlement and rate dates
     tx['settlement_date'] = calculate_settlement_dates(tx['trade_date'])
     tx['rate_date'] = calculate_rate_dates(tx['settlement_date'])
 
+    # Filter by tax year
+    tax_year = args.year
+    tx = tx[tx['settlement_date'].dt.year == tax_year]
+
     # Merge rates
-    merged: pd.DataFrame = merge_with_rates(tx, nbp_rates)
+    merged = merge_with_rates(tx, nbp_rates)
 
     # Choose method
     if args.method == 'fifo':
@@ -210,7 +214,7 @@ def main() -> None:
     pitzg_poz30 = foreign_tax
 
     # Output
-    print("FINAL TAX SUMMARY:")
+    print(f"\n\nPIT-38 for year {tax_year}:")
     print(f"Poz. 22 (Przychód): {poz22:.2f} PLN")
     print(f"Poz. 23 (Koszty uzyskania): {poz23:.2f} PLN")
     print(f"Poz. 26 (Dochód): {poz26:.2f} PLN")
@@ -221,7 +225,7 @@ def main() -> None:
     print(f"Poz. 33 (Podatek należny): {tax_final:.2f} PLN")
     print("\nPIT-ZG:")
     print(f"Poz. 29 (Dochód, o którym mowa w art. 30b ust.5 i 5b): {pitzg_poz29:.2f} PLN")
-    print(f"Poz. 30 (Podatek zapłacony za granicą od dochodów z poz. 29): {pitzg_poz30:.2f}")
+    print(f"Poz. 30 (Podatek zapłacony za granicą od dochodów z poz. 29): {pitzg_poz30:.2f} PLN")
 
 
 if __name__ == '__main__':
