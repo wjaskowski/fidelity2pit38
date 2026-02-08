@@ -8,3 +8,8 @@ dependencies = [
     "pandas>=2.2.3",
     "workalendar>=17.0.0",
 ]
+
+[dependency-groups]
+test = [
+    "pytest>=8.0",
+]
