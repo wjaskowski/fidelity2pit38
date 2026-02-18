@@ -44,3 +44,17 @@ def test_dollar_signs_stripped(example_tx_csv_path):
     assert tx["amount_usd"].notna().any()
     # If there were dollar signs left, conversion to numeric would have produced NaN
     assert tx["amount_usd"].dropna().apply(lambda x: isinstance(x, float)).all()
+
+
+def test_multi_csv_loading(example_tx_csv_path):
+    """Loading the same CSV twice should deduplicate."""
+    single = load_transactions(example_tx_csv_path)
+    double = load_transactions([example_tx_csv_path, example_tx_csv_path])
+    assert len(double) == len(single)
+
+
+def test_multi_csv_list_single(example_tx_csv_path):
+    """A list with one path should work identically to a string."""
+    from_str = load_transactions(example_tx_csv_path)
+    from_list = load_transactions([example_tx_csv_path])
+    assert len(from_str) == len(from_list)

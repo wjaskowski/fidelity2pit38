@@ -173,6 +173,7 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
-*history.csv
+# Private data
+wj-data/
 
 .claude

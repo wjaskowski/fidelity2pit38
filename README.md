@@ -2,9 +2,22 @@
 
 Converts transaction history from Fidelity to PIT-38.
 
+Data from Fidelity:
+`Transaction history.txt` - Stock Plan Accounts -> Activity -> Custom Date -> Jan-01-2025 - Dec-31-2025 -> Export -> `Transaction history 2025.csv`
+->
+
 ## Usage
+
+Place your `Transaction history*.csv` (and optionally `stock-sales*.txt`) files in the `data/` directory and run:
 ```sh
-uv run fidelity2pit38 "Transaction history.csv"
+uv run fidelity2pit38
+```
+
+The tool auto-discovers files in `data/` and defaults to the previous calendar year.
+
+You can also point to a different directory:
+```sh
+uv run fidelity2pit38 --data-dir /path/to/my-data --year 2024
 ```
 
 Examplary output
@@ -28,14 +41,15 @@ Poz. 30 (Podatek zapłacony za granicą od dochodów z poz. 29): 7.34 PLN
 
 If instead of FIFO, you prefer to use information about the specific stocks you sold use
 ```sh
-uv run fidelity2pit38 "Transaction history.csv" --method custom --custom_summary stock-sales.txt
+uv run fidelity2pit38 --method custom
+```
+The `stock-sales*.txt` files are auto-discovered in the data directory. You can also specify them explicitly:
+```sh
+uv run fidelity2pit38 --method custom --custom-summary data/stock-sales.txt
 ```
 The stock-sales.txt file can be created by copy&paste from Fidelity -> Statements / Records -> Custom Transaction Summary -> (Select year) View Transactions -> Stock Sales (select & copy the whole table)
 
 
-## Limitations (TODO)
-- Doesn't take into consideration previous years
-
 ## DISCLAIMER
-This script is provided "as is" for informational purposes only. 
+This script is provided "as is" for informational purposes only.
 I am not a certified accountant or tax advisor, and this script does not constitute professional tax advice. As I consulted AI to write this script, it might be worse than random. Thus, use at your own risk; always consult a qualified professional for personalized guidance.
