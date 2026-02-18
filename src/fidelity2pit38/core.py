@@ -301,6 +301,74 @@ def compute_dividends_and_tax(merged: pd.DataFrame) -> Tuple[float, float]:
     return total_dividends, foreign_tax
 
 
+def load_transactions(tx_csv: str) -> pd.DataFrame:
+    """Load and clean a Fidelity transaction history CSV.
+
+    Parses the CSV, strips semicolons from transaction types, converts
+    dates to timestamps, and parses share counts and dollar amounts.
+
+    Args:
+        tx_csv: Path to the Fidelity transaction history CSV file.
+
+    Returns:
+        DataFrame with added columns: 'trade_date', 'shares', 'amount_usd'.
+    """
+    tx_raw = pd.read_csv(tx_csv)
+    tx = tx_raw.copy()
+    tx['Transaction type'] = tx['Transaction type'].astype(str).str.split(';').str[0]
+    tx['trade_date']       = pd.to_datetime(tx['Transaction date'], format='%b-%d-%Y', errors='coerce')
+    tx['shares']           = pd.to_numeric(tx['Shares'], errors='coerce')
+    tx['amount_usd']       = pd.to_numeric(tx['Amount'].str.replace('[$,]', '', regex=True), errors='coerce')
+    return tx
+
+
+def calculate_pit38_fields(
+    total_proceeds: float,
+    total_costs: float,
+    total_gain: float,
+    total_dividends: float,
+    foreign_tax: float,
+) -> Dict[str, float]:
+    """Compute PIT-38 and PIT-ZG field values from aggregated totals.
+
+    Args:
+        total_proceeds: Total sale proceeds in PLN.
+        total_costs: Total cost basis in PLN.
+        total_gain: Net gain from stock sales in PLN (proceeds - costs).
+        total_dividends: Total dividend income in PLN.
+        foreign_tax: Total foreign withholding tax in PLN.
+
+    Returns:
+        Dict with keys: poz22, poz23, poz26, poz29, poz30_rate, poz31,
+        poz32, tax_final, pitzg_poz29, pitzg_poz30.
+    """
+    poz22 = round(total_proceeds + total_dividends, 2)
+    poz23 = round(total_costs, 2)
+    poz26 = round(poz22 - poz23, 2)
+    poz29 = int(round(poz26))
+    poz30_rate = 0.19
+    poz31 = round(poz29 * poz30_rate, 2)
+    poz32 = foreign_tax
+    raw_tax_due = poz31 - poz32
+    tax_final = int(max(raw_tax_due, 0) + 0.5)
+
+    pitzg_poz29 = total_gain
+    pitzg_poz30 = foreign_tax
+
+    return {
+        'poz22': poz22,
+        'poz23': poz23,
+        'poz26': poz26,
+        'poz29': poz29,
+        'poz30_rate': poz30_rate,
+        'poz31': poz31,
+        'poz32': poz32,
+        'tax_final': tax_final,
+        'pitzg_poz29': pitzg_poz29,
+        'pitzg_poz30': pitzg_poz30,
+    }
+
+
 def calculate_pit38(
     tx_csv: str,
     year: int = 2024,
@@ -316,36 +384,19 @@ def calculate_pit38(
         custom_summary: Path to custom summary TXT file (required when method='custom').
 
     Returns:
-        Dict with PIT-38 and PIT-ZG fields.
+        Dict with PIT-38 and PIT-ZG fields plus 'year'.
     """
-    # 1. Load NBP rates
     NBP_RATE_URLS = [
         "https://static.nbp.pl/dane/kursy/Archiwum/archiwum_tab_a_2024.csv",
-        # add more URLs for other years if needed
     ]
     nbp_rates = load_nbp_rates(NBP_RATE_URLS)
 
-    # 2. Load and clean transactions
-    tx_raw = pd.read_csv(tx_csv)
-    tx = tx_raw.copy()
-    tx['Transaction type'] = tx['Transaction type'].astype(str).str.split(';').str[0]
-    tx['trade_date']       = pd.to_datetime(tx['Transaction date'], format='%b-%d-%Y', errors='coerce')
-    tx['shares']           = pd.to_numeric(tx['Shares'], errors='coerce')
-    tx['amount_usd']       = pd.to_numeric(tx['Amount'].str.replace('[$,]', '', regex=True), errors='coerce')
-
-    # 3. Calculate settlement dates
+    tx = load_transactions(tx_csv)
     tx['settlement_date'] = calculate_settlement_dates(tx['trade_date'], tx['Transaction type'])
-
-    # 4. Filter transactions by tax year
     tx = tx[tx['settlement_date'].dt.year == year]
-
-    # 5. Calculate rate dates (previous Polish business day)
     tx['rate_date'] = calculate_rate_dates(tx['settlement_date'])
-
-    # 6. Merge with NBP rates
     merged = merge_with_rates(tx, nbp_rates)
 
-    # 7. Compute proceeds/costs/gains
     if method == 'fifo':
         total_proceeds, total_costs, total_gain = process_fifo(merged)
     else:
@@ -353,33 +404,10 @@ def calculate_pit38(
             raise ValueError("custom_summary is required when method='custom'")
         total_proceeds, total_costs, total_gain = process_custom(merged, custom_summary)
 
-    # 8. Compute dividends and foreign tax
     total_dividends, foreign_tax = compute_dividends_and_tax(merged)
 
-    # 9. Calculate PIT-38 fields
-    poz22 = round(total_proceeds + total_dividends, 2)
-    poz23 = round(total_costs, 2)
-    poz26 = round(poz22 - poz23, 2)
-    poz29 = int(round(poz26))
-    poz30_rate = 0.19
-    poz31 = round(poz29 * poz30_rate, 2)
-    poz32 = foreign_tax
-    raw_tax_due = poz31 - poz32
-    tax_final = int(max(raw_tax_due, 0) + 0.5)
-
-    pitzg_poz29 = total_gain
-    pitzg_poz30 = foreign_tax
-
-    return {
-        'year': year,
-        'poz22': poz22,
-        'poz23': poz23,
-        'poz26': poz26,
-        'poz29': poz29,
-        'poz30_rate': poz30_rate,
-        'poz31': poz31,
-        'poz32': poz32,
-        'tax_final': tax_final,
-        'pitzg_poz29': pitzg_poz29,
-        'pitzg_poz30': pitzg_poz30,
-    }
+    result = calculate_pit38_fields(
+        total_proceeds, total_costs, total_gain, total_dividends, foreign_tax,
+    )
+    result['year'] = year
+    return result
