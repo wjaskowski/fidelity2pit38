@@ -14,7 +14,20 @@ from workalendar.europe import Poland
 SWITCH_DATE = pd.Timestamp('2024-05-28')
 
 def load_nbp_rates(urls: List[str]) -> pd.DataFrame:
-    """Load and merge USD/PLN rates from NBP archives."""
+    """Load and merge USD/PLN exchange rates from NBP (National Bank of Poland) CSV archives.
+
+    Fetches semicolon-separated, cp1250-encoded CSV files from static.nbp.pl,
+    parses the '1USD' column (comma-decimal format) into float rates, filters
+    rows whose 'data' column matches an 8-digit date pattern (YYYYMMDD), and
+    deduplicates by date.
+
+    Args:
+        urls: URLs to NBP archival CSV files, e.g.
+              "https://static.nbp.pl/dane/kursy/Archiwum/archiwum_tab_a_2024.csv".
+
+    Returns:
+        DataFrame with columns ['date', 'rate'], sorted by date, deduplicated.
+    """
     rates_list = []
     for url in urls:
         df = pd.read_csv(url, sep=';', encoding='cp1250', header=0, dtype=str)
@@ -28,10 +41,24 @@ def load_nbp_rates(urls: List[str]) -> pd.DataFrame:
     return rates
 
 def calculate_settlement_dates(trade_dates: pd.Series, tx_types: pd.Series) -> pd.Series:
-    """
-    Calculate settlement_date:
-      - MARKET TRADES (YOU BOUGHT, YOU SOLD, ESPP): T+2 before SWITCH_DATE, T+1 after, using USFed calendar
-      - CORPORATE ACTIONS & CASH EVENTS (RSU, dividends, fees, reinvestments, SPP credits): settlement = trade_date
+    """Calculate US equity settlement dates per SEC rules.
+
+    Market trades (transaction types containing 'YOU BOUGHT', 'YOU SOLD', or
+    'ESPP') settle on the next US business day(s) after the trade date, skipping
+    US federal holidays and weekends:
+      - Before SWITCH_DATE (2024-05-28): T+2 (two US business days)
+      - On/after SWITCH_DATE:            T+1 (one US business day)
+
+    Corporate actions and cash events (RSU vests, dividends, reinvestments,
+    non-resident tax, fees) settle on the trade date itself (T+0).
+
+    Args:
+        trade_dates: Series of trade-date timestamps (NaT values pass through).
+        tx_types: Series of Fidelity 'Transaction type' strings, e.g.
+                  "YOU SOLD", "YOU BOUGHT ESPP###", "DIVIDEND RECEIVED".
+
+    Returns:
+        Series of settlement-date timestamps, aligned to the input index.
     """
     us_bd1 = CustomBusinessDay(calendar=USFederalHolidayCalendar(), n=1)
     us_bd2 = CustomBusinessDay(calendar=USFederalHolidayCalendar(), n=2)
@@ -51,14 +78,43 @@ def calculate_settlement_dates(trade_dates: pd.Series, tx_types: pd.Series) -> p
     return pd.Series(settlements, index=trade_dates.index)
 
 def calculate_rate_dates(settlement_dates: pd.Series) -> pd.Series:
-    """
-    For each settlement_date, return the rate_date as the previous Polish business day.
+    """Determine the NBP exchange-rate lookup date for each settlement date.
+
+    Polish tax rules require using the exchange rate published on the last
+    Polish business day *before* the settlement date. This subtracts one
+    Polish business day (skipping Polish public holidays and weekends) using
+    the workalendar Poland calendar.
+
+    Example: settlement on Thursday 2024-12-19 -> rate date Wednesday 2024-12-18;
+             settlement on Monday 2024-12-16   -> rate date Friday 2024-12-13.
+
+    Args:
+        settlement_dates: Series of settlement-date timestamps.
+
+    Returns:
+        Series of rate-date timestamps (one Polish business day earlier).
     """
     pl_bd1 = CustomBusinessDay(calendar=Poland(), n=1)
     return settlement_dates - pl_bd1
 
 def merge_with_rates(tx: pd.DataFrame, nbp_rates: pd.DataFrame) -> pd.DataFrame:
-    """Merge transactions with exchange rates via asof-merge on rate_date."""
+    """Join transactions with NBP exchange rates and compute PLN amounts.
+
+    Performs a backward asof-merge on 'rate_date': each transaction picks up
+    the most recent available NBP rate on or before its rate_date. This handles
+    weekends and holidays where no rate is published. Logs an error if any
+    transactions remain unmatched (rate_date before the earliest available rate).
+
+    Adds two columns to the result: 'rate' (USD/PLN) and 'amount_pln'
+    (amount_usd * rate).
+
+    Args:
+        tx: Transaction DataFrame, must contain 'rate_date' and 'amount_usd'.
+        nbp_rates: Rate DataFrame with columns ['date', 'rate'].
+
+    Returns:
+        Merged DataFrame sorted by rate_date, with 'rate' and 'amount_pln' added.
+    """
     tx_sorted = tx.sort_values('rate_date').reset_index(drop=True)
     rates_sorted = nbp_rates.rename(columns={'date': 'rate_date'}).sort_values('rate_date').reset_index(drop=True)
     merged = pd.merge_asof(tx_sorted, rates_sorted, on='rate_date', direction='backward')
@@ -69,7 +125,26 @@ def merge_with_rates(tx: pd.DataFrame, nbp_rates: pd.DataFrame) -> pd.DataFrame:
     return merged
 
 def process_fifo(merged: pd.DataFrame) -> Tuple[float, float, float]:
-    """FIFO matching: compute total proceeds, total costs, and total gain."""
+    """Match stock sales to purchases using FIFO (First-In, First-Out) ordering.
+
+    Buys ('YOU BOUGHT') and sells ('YOU SOLD') are each sorted by settlement
+    date. Each sale consumes buy lots in chronological order, splitting across
+    lots when a single buy lot doesn't cover the full sale quantity. Per-share
+    cost is derived from the buy's amount_pln / shares (negative buy amounts
+    are negated to get positive cost). Per-share proceeds come from the sale's
+    amount_pln / shares.
+
+    Handles mixed sources (RSU with zero cost, ESPP with actual cost) naturally
+    since cost is derived from each lot's amount_pln.
+
+    Args:
+        merged: DataFrame with 'Transaction type', 'settlement_date', 'shares',
+                and 'amount_pln' columns.
+
+    Returns:
+        Tuple of (total_proceeds, total_costs, total_gain) in PLN, where
+        total_gain = total_proceeds - total_costs.
+    """
     buys = merged[merged['Transaction type'].str.contains('YOU BOUGHT', na=False)].sort_values('settlement_date').copy()
     sells = merged[merged['Transaction type'].str.contains('YOU SOLD', na=False)].sort_values('settlement_date').copy()
     buys['remaining'] = buys['shares']
@@ -95,10 +170,31 @@ def process_fifo(merged: pd.DataFrame) -> Tuple[float, float, float]:
     return total_proceeds, total_costs, total_gain
 
 def process_custom(merged: pd.DataFrame, custom_summary_path: str) -> Tuple[float, float, float]:
-    """
-    Custom matching based on provided summary TXT:
-      - ESPP (source 'SP'): cost from transaction history
-      - RSU  (source 'RS'): cost = 0
+    """Match stock sales to specific lots using a Fidelity custom summary file.
+
+    Reads a tab-separated summary file (e.g. stock-sales.txt) with columns:
+    'Date sold or transferred', 'Date acquired', 'Quantity', 'Stock source',
+    etc. Each row identifies a specific lot to match against the transaction
+    history.
+
+    Cost basis depends on the 'Stock source' column:
+      - 'RS' (Restricted Stock / RSU): cost = 0 (vesting FMV already taxed
+        as ordinary income, so Polish cost basis is zero).
+      - 'SP' (ESPP): cost derived from the matching 'YOU BOUGHT ESPP###'
+        transaction in the history, converted to PLN via the buy's rate.
+      - Other sources: cost derived from the matching buy transaction.
+
+    Sale and buy lookups try trade_date first, then fall back to
+    settlement_date, to handle date ambiguity in Fidelity exports.
+
+    Args:
+        merged: Transaction DataFrame (output of merge_with_rates), must include
+                'trade_date', 'settlement_date', 'Transaction type', 'shares',
+                and 'amount_pln'.
+        custom_summary_path: Path to the tab-separated custom summary TXT file.
+
+    Returns:
+        Tuple of (total_proceeds, total_costs, total_gain) in PLN.
     """
     # normalize dates for matching
     merged['trade_date_norm'] = merged['trade_date'].dt.normalize()
@@ -167,7 +263,27 @@ def process_custom(merged: pd.DataFrame, custom_summary_path: str) -> Tuple[floa
     return total_proceeds, total_costs, total_gain
 
 def compute_dividends_and_tax(merged: pd.DataFrame) -> Tuple[float, float]:
-    """Compute total dividends (gross + reinvested) and foreign withholding tax."""
+    """Compute total dividend income and US withholding tax in PLN.
+
+    Dividend income sums:
+      - 'DIVIDEND RECEIVED' rows (gross cash dividends)
+      - 'REINVESTMENT' rows (dividends reinvested into shares; typically
+        negative amounts representing the reinvestment outflow)
+
+    Foreign withholding tax sums (negated, since they appear as negative
+    amounts):
+      - 'NON-RESIDENT TAX DIVIDEND RECEIVED' (exact match)
+      - Any row containing 'NON-RESIDENT TAX' (broader match)
+
+    Both are reported on PIT-38/PIT-ZG: dividends feed into Poz. 22 (income),
+    foreign tax into Poz. 32 (tax credit).
+
+    Args:
+        merged: Transaction DataFrame with 'Transaction type' and 'amount_pln'.
+
+    Returns:
+        Tuple of (total_dividends_pln, foreign_tax_pln).
+    """
     gross_div = merged[merged['Transaction type'] == 'DIVIDEND RECEIVED']['amount_pln'].sum()
     reinv_div = merged[merged['Transaction type'].str.contains('REINVESTMENT', na=False)]['amount_pln'].sum()
     total_dividends = gross_div + reinv_div
@@ -178,6 +294,20 @@ def compute_dividends_and_tax(merged: pd.DataFrame) -> Tuple[float, float]:
     return total_dividends, foreign_tax
 
 def main() -> None:
+    """CLI entry point: load data, compute PIT-38 and PIT-ZG fields, print results.
+
+    Pipeline steps:
+      1. Load NBP USD/PLN exchange rates from archival CSVs.
+      2. Load and clean Fidelity transaction history CSV (parse dates, amounts,
+         strip semicolons from transaction types).
+      3. Calculate US settlement dates (T+1 or T+2 depending on trade date).
+      4. Filter transactions to the requested tax year by settlement date.
+      5. Calculate NBP rate lookup dates (previous Polish business day).
+      6. Merge transactions with exchange rates, converting USD to PLN.
+      7. Compute stock sale proceeds/costs/gain via FIFO or custom method.
+      8. Compute dividend income and US withholding tax.
+      9. Print PIT-38 positions (Poz. 22-33) and PIT-ZG positions (Poz. 29-30).
+    """
     parser = argparse.ArgumentParser(description='Compute PIT-38 summary from Fidelity CSV')
     parser.add_argument('tx_csv', help='Path to the transaction history CSV file')
     parser.add_argument('--method', choices=['fifo', 'custom'], default='fifo',
