@@ -1,10 +1,12 @@
 from .core import (
     SWITCH_DATE,
+    build_nbp_rate_urls,
     calculate_pit38,
     calculate_pit38_fields,
     calculate_rate_dates,
     calculate_settlement_dates,
     compute_dividends_and_tax,
+    discover_transaction_files,
     load_nbp_rates,
     load_transactions,
     merge_with_rates,
@@ -15,11 +17,13 @@ from .cli import main
 
 __all__ = [
     "SWITCH_DATE",
+    "build_nbp_rate_urls",
     "calculate_pit38",
     "calculate_pit38_fields",
     "calculate_rate_dates",
     "calculate_settlement_dates",
     "compute_dividends_and_tax",
+    "discover_transaction_files",
     "load_nbp_rates",
     "load_transactions",
     "main",

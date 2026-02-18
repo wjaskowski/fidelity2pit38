@@ -2,9 +2,14 @@
 # DISCLAIMER: This script is provided "as is" for informational purposes only.
 # I am not a certified accountant or tax advisor; consult a professional for personalized guidance.
 
+import io
 import logging
-from typing import Dict, List, Optional, Tuple
+import ssl
+import urllib.request
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple, Union
 
+import certifi
 import pandas as pd
 from pandas.tseries.holiday import USFederalHolidayCalendar
 from pandas.tseries.offsets import CustomBusinessDay
@@ -12,6 +17,49 @@ from workalendar.europe import Poland
 
 # constant for switch from T+2 to T+1
 SWITCH_DATE = pd.Timestamp('2024-05-28')
+
+
+def discover_transaction_files(directory: str) -> Tuple[List[str], List[str]]:
+    """Glob for transaction history CSVs and stock-sales TXTs in a directory.
+
+    Args:
+        directory: Path to the directory to scan.
+
+    Returns:
+        Tuple of (csv_paths, txt_paths), each sorted alphabetically.
+    """
+    d = Path(directory)
+    csv_paths = sorted(str(p) for p in d.glob("Transaction history*.csv"))
+    txt_paths = sorted(str(p) for p in d.glob("stock-sales*.txt"))
+    logging.info(f"Discovered {len(csv_paths)} CSV(s) and {len(txt_paths)} TXT(s) in {directory}")
+    for p in csv_paths:
+        logging.info(f"  CSV: {p}")
+    for p in txt_paths:
+        logging.info(f"  TXT: {p}")
+    return csv_paths, txt_paths
+
+
+def build_nbp_rate_urls(years: List[int]) -> List[str]:
+    """Build NBP archive URLs covering the given years plus one year before.
+
+    Rates from the year before the earliest are needed because transactions
+    near January 1 may require a rate from the previous year.
+
+    Args:
+        years: List of years present in the transaction data.
+
+    Returns:
+        List of NBP CSV archive URLs.
+    """
+    if not years:
+        return []
+    all_years = range(min(years) - 1, max(years) + 1)
+    urls = [
+        f"https://static.nbp.pl/dane/kursy/Archiwum/archiwum_tab_a_{y}.csv"
+        for y in all_years
+    ]
+    logging.info(f"NBP rate URLs for years {list(all_years)}: {len(urls)} files")
+    return urls
 
 
 def load_nbp_rates(urls: List[str]) -> pd.DataFrame:
@@ -29,9 +77,12 @@ def load_nbp_rates(urls: List[str]) -> pd.DataFrame:
     Returns:
         DataFrame with columns ['date', 'rate'], sorted by date, deduplicated.
     """
+    ssl_ctx = ssl.create_default_context(cafile=certifi.where())
     rates_list = []
     for url in urls:
-        df = pd.read_csv(url, sep=';', encoding='cp1250', header=0, dtype=str)
+        with urllib.request.urlopen(url, context=ssl_ctx) as resp:
+            raw = resp.read().decode('cp1250')
+        df = pd.read_csv(io.StringIO(raw), sep=';', header=0, dtype=str)
         df = df[df['data'].str.match(r"\d{8}", na=False)]
         df['date'] = pd.to_datetime(df['data'], format='%Y%m%d', errors='coerce')
         df['rate'] = pd.to_numeric(df['1USD'].str.replace(',', '.'), errors='coerce')
@@ -129,7 +180,7 @@ def merge_with_rates(tx: pd.DataFrame, nbp_rates: pd.DataFrame) -> pd.DataFrame:
     return merged
 
 
-def process_fifo(merged: pd.DataFrame) -> Tuple[float, float, float]:
+def process_fifo(merged: pd.DataFrame, year: Optional[int] = None) -> Tuple[float, float, float]:
     """Match stock sales to purchases using FIFO (First-In, First-Out) ordering.
 
     Buys ('YOU BOUGHT') and sells ('YOU SOLD') are each sorted by settlement
@@ -145,6 +196,8 @@ def process_fifo(merged: pd.DataFrame) -> Tuple[float, float, float]:
     Args:
         merged: DataFrame with 'Transaction type', 'settlement_date', 'shares',
                 and 'amount_pln' columns.
+        year: If set, only sells settling in this year are matched.
+              All buys are kept so cross-year FIFO works correctly.
 
     Returns:
         Tuple of (total_proceeds, total_costs, total_gain) in PLN, where
@@ -152,6 +205,8 @@ def process_fifo(merged: pd.DataFrame) -> Tuple[float, float, float]:
     """
     buys = merged[merged['Transaction type'].str.contains('YOU BOUGHT', na=False)].sort_values('settlement_date').copy()
     sells = merged[merged['Transaction type'].str.contains('YOU SOLD', na=False)].sort_values('settlement_date').copy()
+    if year is not None:
+        sells = sells[sells['settlement_date'].dt.year == year]
     buys['remaining'] = buys['shares']
     allocs = []
     for _, sale in sells.iterrows():
@@ -175,13 +230,13 @@ def process_fifo(merged: pd.DataFrame) -> Tuple[float, float, float]:
     return total_proceeds, total_costs, total_gain
 
 
-def process_custom(merged: pd.DataFrame, custom_summary_path: str) -> Tuple[float, float, float]:
+def process_custom(merged: pd.DataFrame, custom_summary_path: Union[str, List[str]], year: Optional[int] = None) -> Tuple[float, float, float]:
     """Match stock sales to specific lots using a Fidelity custom summary file.
 
-    Reads a tab-separated summary file (e.g. stock-sales.txt) with columns:
-    'Date sold or transferred', 'Date acquired', 'Quantity', 'Stock source',
-    etc. Each row identifies a specific lot to match against the transaction
-    history.
+    Reads one or more tab-separated summary files (e.g. stock-sales.txt) with
+    columns: 'Date sold or transferred', 'Date acquired', 'Quantity',
+    'Stock source', etc. Each row identifies a specific lot to match against
+    the transaction history.
 
     Cost basis depends on the 'Stock source' column:
       - 'RS' (Restricted Stock / RSU): cost = 0 (vesting FMV already taxed
@@ -197,7 +252,9 @@ def process_custom(merged: pd.DataFrame, custom_summary_path: str) -> Tuple[floa
         merged: Transaction DataFrame (output of merge_with_rates), must include
                 'trade_date', 'settlement_date', 'Transaction type', 'shares',
                 and 'amount_pln'.
-        custom_summary_path: Path to the tab-separated custom summary TXT file.
+        custom_summary_path: Path (or list of paths) to tab-separated custom
+                summary TXT file(s).
+        year: If set, only rows whose sale date falls in this year are matched.
 
     Returns:
         Tuple of (total_proceeds, total_costs, total_gain) in PLN.
@@ -206,10 +263,14 @@ def process_custom(merged: pd.DataFrame, custom_summary_path: str) -> Tuple[floa
     merged['trade_date_norm'] = merged['trade_date'].dt.normalize()
     merged['settlement_norm'] = merged['settlement_date'].dt.normalize()
 
-    custom = pd.read_csv(custom_summary_path, sep='\t', engine='python')
+    paths = [custom_summary_path] if isinstance(custom_summary_path, str) else custom_summary_path
+    custom_frames = [pd.read_csv(p, sep='\t', engine='python') for p in paths]
+    custom = pd.concat(custom_frames, ignore_index=True).drop_duplicates()
     custom['Date sold']     = pd.to_datetime(custom['Date sold or transferred'], format='%b-%d-%Y', errors='coerce')
     custom['Date acquired'] = pd.to_datetime(custom['Date acquired'],              format='%b-%d-%Y', errors='coerce')
     custom['Quantity']      = pd.to_numeric(custom['Quantity'],                    errors='coerce')
+    if year is not None:
+        custom = custom[custom['Date sold'].dt.year == year]
 
     allocs = []
     for _, row in custom.iterrows():
@@ -269,7 +330,7 @@ def process_custom(merged: pd.DataFrame, custom_summary_path: str) -> Tuple[floa
     return total_proceeds, total_costs, total_gain
 
 
-def compute_dividends_and_tax(merged: pd.DataFrame) -> Tuple[float, float]:
+def compute_dividends_and_tax(merged: pd.DataFrame, year: Optional[int] = None) -> Tuple[float, float]:
     """Compute total dividend income and US withholding tax in PLN.
 
     Dividend income sums:
@@ -286,39 +347,48 @@ def compute_dividends_and_tax(merged: pd.DataFrame) -> Tuple[float, float]:
     foreign tax into Poz. 32 (tax credit).
 
     Args:
-        merged: Transaction DataFrame with 'Transaction type' and 'amount_pln'.
+        merged: Transaction DataFrame with 'Transaction type', 'amount_pln',
+                and 'settlement_date'.
+        year: If set, only rows settling in this year are included.
 
     Returns:
         Tuple of (total_dividends_pln, foreign_tax_pln).
     """
-    gross_div = merged[merged['Transaction type'] == 'DIVIDEND RECEIVED']['amount_pln'].sum()
-    reinv_div = merged[merged['Transaction type'].str.contains('REINVESTMENT', na=False)]['amount_pln'].sum()
+    df = merged
+    if year is not None:
+        df = merged[merged['settlement_date'].dt.year == year]
+    gross_div = df[df['Transaction type'] == 'DIVIDEND RECEIVED']['amount_pln'].sum()
+    reinv_div = df[df['Transaction type'].str.contains('REINVESTMENT', na=False)]['amount_pln'].sum()
     total_dividends = gross_div + reinv_div
-    wd = -merged[merged['Transaction type'] == 'NON-RESIDENT TAX DIVIDEND RECEIVED']['amount_pln'].sum()
-    wk = -merged[merged['Transaction type'].str.contains('NON-RESIDENT TAX', na=False)]['amount_pln'].sum()
-    foreign_tax = round(wd + wk, 2)
+    wd = -df[df['Transaction type'] == 'NON-RESIDENT TAX DIVIDEND RECEIVED']['amount_pln'].sum()
+    wk = -df[df['Transaction type'].str.contains('NON-RESIDENT TAX', na=False)]['amount_pln'].sum()
+    foreign_tax = round(wd + wk, 2) + 0.0  # +0.0 avoids -0.00 display
     logging.info(f"Dividends PLN: {total_dividends:.2f}; Foreign tax PLN: {foreign_tax:.2f}")
     return total_dividends, foreign_tax
 
 
-def load_transactions(tx_csv: str) -> pd.DataFrame:
-    """Load and clean a Fidelity transaction history CSV.
+def load_transactions(tx_csv: Union[str, List[str]]) -> pd.DataFrame:
+    """Load and clean one or more Fidelity transaction history CSVs.
 
-    Parses the CSV, strips semicolons from transaction types, converts
-    dates to timestamps, and parses share counts and dollar amounts.
+    Parses each CSV, concatenates them, deduplicates, strips semicolons
+    from transaction types, converts dates to timestamps, and parses
+    share counts and dollar amounts.
 
     Args:
-        tx_csv: Path to the Fidelity transaction history CSV file.
+        tx_csv: Path (or list of paths) to Fidelity transaction history CSV file(s).
 
     Returns:
         DataFrame with added columns: 'trade_date', 'shares', 'amount_usd'.
     """
-    tx_raw = pd.read_csv(tx_csv)
+    paths = [tx_csv] if isinstance(tx_csv, str) else tx_csv
+    frames = [pd.read_csv(p) for p in paths]
+    tx_raw = pd.concat(frames, ignore_index=True).drop_duplicates()
     tx = tx_raw.copy()
     tx['Transaction type'] = tx['Transaction type'].astype(str).str.split(';').str[0]
     tx['trade_date']       = pd.to_datetime(tx['Transaction date'], format='%b-%d-%Y', errors='coerce')
     tx['shares']           = pd.to_numeric(tx['Shares'], errors='coerce')
     tx['amount_usd']       = pd.to_numeric(tx['Amount'].str.replace('[$,]', '', regex=True), errors='coerce')
+    logging.info(f"Loaded {len(tx)} transactions from {len(paths)} file(s).")
     return tx
 
 
@@ -370,41 +440,50 @@ def calculate_pit38_fields(
 
 
 def calculate_pit38(
-    tx_csv: str,
+    tx_csv: Union[str, List[str]],
     year: int = 2024,
     method: str = 'fifo',
-    custom_summary: Optional[str] = None,
+    custom_summary: Union[str, List[str], None] = None,
 ) -> Dict[str, float]:
     """Run the full PIT-38 calculation pipeline.
 
     Args:
-        tx_csv: Path to the Fidelity transaction history CSV file.
+        tx_csv: Path (or list of paths) to Fidelity transaction history CSV file(s).
         year: Tax year to process.
         method: 'fifo' or 'custom' lot matching method.
-        custom_summary: Path to custom summary TXT file (required when method='custom').
+        custom_summary: Path (or list of paths) to custom summary TXT file(s)
+                (required when method='custom').
 
     Returns:
         Dict with PIT-38 and PIT-ZG fields plus 'year'.
     """
-    NBP_RATE_URLS = [
-        "https://static.nbp.pl/dane/kursy/Archiwum/archiwum_tab_a_2024.csv",
-    ]
-    nbp_rates = load_nbp_rates(NBP_RATE_URLS)
-
     tx = load_transactions(tx_csv)
     tx['settlement_date'] = calculate_settlement_dates(tx['trade_date'], tx['Transaction type'])
-    tx = tx[tx['settlement_date'].dt.year == year]
+    tx = tx.dropna(subset=['settlement_date'])
+
+    # Build NBP rate URLs dynamically from the years present in the data
+    data_years = sorted(int(y) for y in tx['settlement_date'].dt.year.unique())
+    nbp_urls = build_nbp_rate_urls(data_years)
+    nbp_rates = load_nbp_rates(nbp_urls)
+
+    if year not in data_years:
+        logging.warning(
+            f"Target year {year} not found in transaction data. "
+            f"Data contains years: {data_years}. "
+            f"Use --year to specify the correct tax year."
+        )
+
     tx['rate_date'] = calculate_rate_dates(tx['settlement_date'])
     merged = merge_with_rates(tx, nbp_rates)
 
     if method == 'fifo':
-        total_proceeds, total_costs, total_gain = process_fifo(merged)
+        total_proceeds, total_costs, total_gain = process_fifo(merged, year=year)
     else:
         if not custom_summary:
             raise ValueError("custom_summary is required when method='custom'")
-        total_proceeds, total_costs, total_gain = process_custom(merged, custom_summary)
+        total_proceeds, total_costs, total_gain = process_custom(merged, custom_summary, year=year)
 
-    total_dividends, foreign_tax = compute_dividends_and_tax(merged)
+    total_dividends, foreign_tax = compute_dividends_and_tax(merged, year=year)
 
     result = calculate_pit38_fields(
         total_proceeds, total_costs, total_gain, total_dividends, foreign_tax,

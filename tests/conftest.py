@@ -7,6 +7,7 @@ import pytest
 import fidelity2pit38
 
 PROJECT_DIR = Path(__file__).parent.parent
+DATA_DIR = PROJECT_DIR / "data"
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
 
@@ -16,13 +17,23 @@ def nbp_fixture_csv_path():
 
 
 @pytest.fixture
+def nbp_fixture_csv_path_2023():
+    return str(FIXTURE_DIR / "nbp_rates_2023.csv")
+
+
+@pytest.fixture
+def example_data_dir():
+    return str(DATA_DIR)
+
+
+@pytest.fixture
 def example_tx_csv_path():
-    return str(PROJECT_DIR / "Transaction history.csv")
+    return str(DATA_DIR / "Transaction history.csv")
 
 
 @pytest.fixture
 def example_custom_summary_path():
-    return str(PROJECT_DIR / "stock-sales.txt")
+    return str(DATA_DIR / "stock-sales.txt")
 
 
 @pytest.fixture
@@ -66,16 +77,75 @@ def nbp_rates_df():
 
 
 @pytest.fixture
-def mock_nbp_read_csv(nbp_fixture_csv_path):
-    """Patches pd.read_csv: redirects HTTP URLs to the fixture file, passes through local paths."""
-    original_read_csv = pd.read_csv
+def nbp_rates_multi_year_df():
+    """NBP rates spanning 2023-2024 for multi-year tests."""
+    return pd.DataFrame(
+        {
+            "date": pd.to_datetime(
+                [
+                    "2023-12-18",
+                    "2023-12-19",
+                    "2023-12-20",
+                    "2023-12-27",
+                    "2023-12-28",
+                    "2023-12-29",
+                    "2024-09-10",
+                    "2024-09-11",
+                    "2024-09-12",
+                    "2024-09-13",
+                    "2024-12-13",
+                    "2024-12-16",
+                    "2024-12-17",
+                    "2024-12-18",
+                    "2024-12-19",
+                    "2024-12-20",
+                    "2024-12-27",
+                    "2024-12-30",
+                    "2024-12-31",
+                ]
+            ),
+            "rate": [
+                3.9500,
+                3.9550,
+                3.9600,
+                3.9700,
+                3.9750,
+                3.9800,
+                3.8700,
+                3.8816,
+                3.8900,
+                3.8950,
+                4.0500,
+                4.0571,
+                4.0600,
+                4.0621,
+                4.0650,
+                4.0700,
+                4.0800,
+                4.0960,
+                4.1000,
+            ],
+        }
+    )
 
-    def _mock(path_or_url, **kwargs):
-        if isinstance(path_or_url, str) and path_or_url.startswith("http"):
-            return original_read_csv(nbp_fixture_csv_path, **kwargs)
-        return original_read_csv(path_or_url, **kwargs)
 
-    return patch("fidelity2pit38.core.pd.read_csv", side_effect=_mock)
+@pytest.fixture
+def mock_nbp_read_csv(nbp_fixture_csv_path, nbp_fixture_csv_path_2023):
+    """Patches urllib.request.urlopen: serves fixture files instead of fetching from NBP."""
+    from io import BytesIO
+    from unittest.mock import MagicMock
+
+    def _mock_urlopen(url, **kwargs):
+        fixture = nbp_fixture_csv_path_2023 if "2023" in url else nbp_fixture_csv_path
+        with open(fixture, "rb") as f:
+            data = f.read()
+        resp = MagicMock()
+        resp.read.return_value = data
+        resp.__enter__ = lambda s: s
+        resp.__exit__ = MagicMock(return_value=False)
+        return resp
+
+    return patch("fidelity2pit38.core.urllib.request.urlopen", side_effect=_mock_urlopen)
 
 
 @pytest.fixture

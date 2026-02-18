@@ -131,10 +131,10 @@ class TestE2ECustom:
 
 class TestMainCLI:
     def test_main_fifo(
-        self, capsys, monkeypatch, example_tx_csv_path, mock_nbp_read_csv
+        self, capsys, monkeypatch, example_data_dir, mock_nbp_read_csv
     ):
         monkeypatch.setattr(
-            sys, "argv", ["fidelity2pit38.py", example_tx_csv_path, "--method", "fifo"]
+            sys, "argv", ["fidelity2pit38", "--data-dir", example_data_dir, "--method", "fifo", "--year", "2024"]
         )
         with mock_nbp_read_csv:
             main()
@@ -148,7 +148,7 @@ class TestMainCLI:
         self,
         capsys,
         monkeypatch,
-        example_tx_csv_path,
+        example_data_dir,
         example_custom_summary_path,
         mock_nbp_read_csv,
     ):
@@ -156,12 +156,15 @@ class TestMainCLI:
             sys,
             "argv",
             [
-                "fidelity2pit38.py",
-                example_tx_csv_path,
+                "fidelity2pit38",
+                "--data-dir",
+                example_data_dir,
                 "--method",
                 "custom",
-                "--custom_summary",
+                "--custom-summary",
                 example_custom_summary_path,
+                "--year",
+                "2024",
             ],
         )
         with mock_nbp_read_csv:
@@ -171,12 +174,12 @@ class TestMainCLI:
         assert "PIT-ZG:" in out
 
     def test_main_year_flag(
-        self, capsys, monkeypatch, example_tx_csv_path, mock_nbp_read_csv
+        self, capsys, monkeypatch, example_data_dir, mock_nbp_read_csv
     ):
         monkeypatch.setattr(
             sys,
             "argv",
-            ["fidelity2pit38.py", example_tx_csv_path, "--year", "2024"],
+            ["fidelity2pit38", "--data-dir", example_data_dir, "--year", "2024"],
         )
         with mock_nbp_read_csv:
             main()
@@ -184,12 +187,15 @@ class TestMainCLI:
         assert "PIT-38 for year 2024:" in out
 
     def test_main_custom_without_summary_errors(
-        self, monkeypatch, example_tx_csv_path, mock_nbp_read_csv
+        self, tmp_path, monkeypatch, mock_nbp_read_csv
     ):
+        """custom method without --custom-summary and no discoverable TXTs should error."""
+        # tmp_path has no stock-sales*.txt files
+        (tmp_path / "Transaction history.csv").write_text("Transaction date,Transaction type,Investment name,Shares,Amount\n")
         monkeypatch.setattr(
             sys,
             "argv",
-            ["fidelity2pit38.py", example_tx_csv_path, "--method", "custom"],
+            ["fidelity2pit38", "--data-dir", str(tmp_path), "--method", "custom", "--year", "2024"],
         )
         with mock_nbp_read_csv, pytest.raises(SystemExit):
             main()
