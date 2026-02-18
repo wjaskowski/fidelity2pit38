@@ -1,21 +1,21 @@
 # fidelity2pit38
 
-Converts transaction history from Fidelity to PIT-38.
+Creates PIT-28 from your Fidelity history.
 
-Data from Fidelity:
-`Transaction history.txt` - Stock Plan Accounts -> Activity -> Custom Date -> Jan-01-2025 - Dec-31-2025 -> Export -> `Transaction history 2025.csv`
-->
+**News**: Updated to handle 2025, but I am still checking if it works correctly.
 
 ## Usage
 
-Place your `Transaction history*.csv` (and optionally `stock-sales*.txt`) files in the `data/` directory and run:
+1. Go to your Fidelity -> Stock Plan Accounts -> Activity -> Custom Date -> Jan-01-2025-Dec-31-2025 -> Export -> `Transaction history 2025.csv`
+ 
+2. Place your `Transaction history*.csv` files in the `data/` directory and run:
 ```sh
 uv run fidelity2pit38
 ```
 
 The tool auto-discovers files in `data/` and defaults to the previous calendar year.
 
-You can also point to a different directory:
+You can also point to a different directory and select a different year:
 ```sh
 uv run fidelity2pit38 --data-dir /path/to/my-data --year 2024
 ```
@@ -38,6 +38,8 @@ Poz. 30 (Podatek zapłacony za granicą od dochodów z poz. 29): 7.34 PLN
 ```
 
 ### Non-FIFO
+
+**Warning**: untested at all
 
 If instead of FIFO, you prefer to use information about the specific stocks you sold use
 ```sh
