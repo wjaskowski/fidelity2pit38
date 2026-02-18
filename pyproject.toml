@@ -9,6 +9,13 @@ dependencies = [
     "workalendar>=17.0.0",
 ]
 
+[project.scripts]
+fidelity2pit38 = "fidelity2pit38.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [dependency-groups]
 test = [
     "pytest>=8.0",

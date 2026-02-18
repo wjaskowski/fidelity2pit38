@@ -2,16 +2,17 @@
 # DISCLAIMER: This script is provided "as is" for informational purposes only.
 # I am not a certified accountant or tax advisor; consult a professional for personalized guidance.
 
-import argparse
-import pandas as pd
 import logging
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
+
+import pandas as pd
 from pandas.tseries.holiday import USFederalHolidayCalendar
 from pandas.tseries.offsets import CustomBusinessDay
 from workalendar.europe import Poland
 
 # constant for switch from T+2 to T+1
 SWITCH_DATE = pd.Timestamp('2024-05-28')
+
 
 def load_nbp_rates(urls: List[str]) -> pd.DataFrame:
     """Load and merge USD/PLN exchange rates from NBP (National Bank of Poland) CSV archives.
@@ -39,6 +40,7 @@ def load_nbp_rates(urls: List[str]) -> pd.DataFrame:
     rates = pd.concat(rates_list).drop_duplicates('date').sort_values('date').reset_index(drop=True)
     logging.info(f"Loaded {len(rates)} exchange-rate entries.")
     return rates
+
 
 def calculate_settlement_dates(trade_dates: pd.Series, tx_types: pd.Series) -> pd.Series:
     """Calculate US equity settlement dates per SEC rules.
@@ -77,6 +79,7 @@ def calculate_settlement_dates(trade_dates: pd.Series, tx_types: pd.Series) -> p
             settlements.append(d)
     return pd.Series(settlements, index=trade_dates.index)
 
+
 def calculate_rate_dates(settlement_dates: pd.Series) -> pd.Series:
     """Determine the NBP exchange-rate lookup date for each settlement date.
 
@@ -96,6 +99,7 @@ def calculate_rate_dates(settlement_dates: pd.Series) -> pd.Series:
     """
     pl_bd1 = CustomBusinessDay(calendar=Poland(), n=1)
     return settlement_dates - pl_bd1
+
 
 def merge_with_rates(tx: pd.DataFrame, nbp_rates: pd.DataFrame) -> pd.DataFrame:
     """Join transactions with NBP exchange rates and compute PLN amounts.
@@ -123,6 +127,7 @@ def merge_with_rates(tx: pd.DataFrame, nbp_rates: pd.DataFrame) -> pd.DataFrame:
         logging.error(f"{missing} transactions missing exchange rate.")
     merged['amount_pln'] = merged['amount_usd'] * merged['rate']
     return merged
+
 
 def process_fifo(merged: pd.DataFrame) -> Tuple[float, float, float]:
     """Match stock sales to purchases using FIFO (First-In, First-Out) ordering.
@@ -168,6 +173,7 @@ def process_fifo(merged: pd.DataFrame) -> Tuple[float, float, float]:
     total_gain     = round(total_proceeds - total_costs, 2)
     logging.info(f"FIFO: matched {len(allocs)} lots; Gain PLN: {total_gain:.2f}")
     return total_proceeds, total_costs, total_gain
+
 
 def process_custom(merged: pd.DataFrame, custom_summary_path: str) -> Tuple[float, float, float]:
     """Match stock sales to specific lots using a Fidelity custom summary file.
@@ -262,6 +268,7 @@ def process_custom(merged: pd.DataFrame, custom_summary_path: str) -> Tuple[floa
     logging.info(f"Custom (by specific lots): matched {len(allocs)} lots; Gain PLN: {total_gain:.2f}")
     return total_proceeds, total_costs, total_gain
 
+
 def compute_dividends_and_tax(merged: pd.DataFrame) -> Tuple[float, float]:
     """Compute total dividend income and US withholding tax in PLN.
 
@@ -293,33 +300,24 @@ def compute_dividends_and_tax(merged: pd.DataFrame) -> Tuple[float, float]:
     logging.info(f"Dividends PLN: {total_dividends:.2f}; Foreign tax PLN: {foreign_tax:.2f}")
     return total_dividends, foreign_tax
 
-def main() -> None:
-    """CLI entry point: load data, compute PIT-38 and PIT-ZG fields, print results.
 
-    Pipeline steps:
-      1. Load NBP USD/PLN exchange rates from archival CSVs.
-      2. Load and clean Fidelity transaction history CSV (parse dates, amounts,
-         strip semicolons from transaction types).
-      3. Calculate US settlement dates (T+1 or T+2 depending on trade date).
-      4. Filter transactions to the requested tax year by settlement date.
-      5. Calculate NBP rate lookup dates (previous Polish business day).
-      6. Merge transactions with exchange rates, converting USD to PLN.
-      7. Compute stock sale proceeds/costs/gain via FIFO or custom method.
-      8. Compute dividend income and US withholding tax.
-      9. Print PIT-38 positions (Poz. 22-33) and PIT-ZG positions (Poz. 29-30).
+def calculate_pit38(
+    tx_csv: str,
+    year: int = 2024,
+    method: str = 'fifo',
+    custom_summary: Optional[str] = None,
+) -> Dict[str, float]:
+    """Run the full PIT-38 calculation pipeline.
+
+    Args:
+        tx_csv: Path to the Fidelity transaction history CSV file.
+        year: Tax year to process.
+        method: 'fifo' or 'custom' lot matching method.
+        custom_summary: Path to custom summary TXT file (required when method='custom').
+
+    Returns:
+        Dict with PIT-38 and PIT-ZG fields.
     """
-    parser = argparse.ArgumentParser(description='Compute PIT-38 summary from Fidelity CSV')
-    parser.add_argument('tx_csv', help='Path to the transaction history CSV file')
-    parser.add_argument('--method', choices=['fifo', 'custom'], default='fifo',
-                        help='Use FIFO (default) or custom summary for matching')
-    parser.add_argument('--custom_summary',
-                        help='Path to custom transaction summary (TXT) for method=custom')
-    parser.add_argument('--year', type=int, default=2024,
-                        help='Tax year to process (default: 2024)')
-    args = parser.parse_args()
-
-    logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
-
     # 1. Load NBP rates
     NBP_RATE_URLS = [
         "https://static.nbp.pl/dane/kursy/Archiwum/archiwum_tab_a_2024.csv",
@@ -328,18 +326,18 @@ def main() -> None:
     nbp_rates = load_nbp_rates(NBP_RATE_URLS)
 
     # 2. Load and clean transactions
-    tx_raw = pd.read_csv(args.tx_csv)
+    tx_raw = pd.read_csv(tx_csv)
     tx = tx_raw.copy()
     tx['Transaction type'] = tx['Transaction type'].astype(str).str.split(';').str[0]
     tx['trade_date']       = pd.to_datetime(tx['Transaction date'], format='%b-%d-%Y', errors='coerce')
     tx['shares']           = pd.to_numeric(tx['Shares'], errors='coerce')
     tx['amount_usd']       = pd.to_numeric(tx['Amount'].str.replace('[$,]', '', regex=True), errors='coerce')
 
-    # 3. Calculate settlement dates with updated rules
+    # 3. Calculate settlement dates
     tx['settlement_date'] = calculate_settlement_dates(tx['trade_date'], tx['Transaction type'])
 
     # 4. Filter transactions by tax year
-    tx = tx[tx['settlement_date'].dt.year == args.year]
+    tx = tx[tx['settlement_date'].dt.year == year]
 
     # 5. Calculate rate dates (previous Polish business day)
     tx['rate_date'] = calculate_rate_dates(tx['settlement_date'])
@@ -348,17 +346,17 @@ def main() -> None:
     merged = merge_with_rates(tx, nbp_rates)
 
     # 7. Compute proceeds/costs/gains
-    if args.method == 'fifo':
+    if method == 'fifo':
         total_proceeds, total_costs, total_gain = process_fifo(merged)
     else:
-        if not args.custom_summary:
-            parser.error("--custom_summary is required when method=custom")
-        total_proceeds, total_costs, total_gain = process_custom(merged, args.custom_summary)
+        if not custom_summary:
+            raise ValueError("custom_summary is required when method='custom'")
+        total_proceeds, total_costs, total_gain = process_custom(merged, custom_summary)
 
     # 8. Compute dividends and foreign tax
     total_dividends, foreign_tax = compute_dividends_and_tax(merged)
 
-    # 9. Prepare PIT-38 fields
+    # 9. Calculate PIT-38 fields
     poz22 = round(total_proceeds + total_dividends, 2)
     poz23 = round(total_costs, 2)
     poz26 = round(poz22 - poz23, 2)
@@ -372,20 +370,16 @@ def main() -> None:
     pitzg_poz29 = total_gain
     pitzg_poz30 = foreign_tax
 
-    # 10. Output results
-    print(f"\n\nPIT-38 for year {args.year}:")
-    print(f"Poz. 22 (Przychód): {poz22:.2f} PLN")
-    print(f"Poz. 23 (Koszty uzyskania): {poz23:.2f} PLN")
-    print(f"Poz. 26 (Dochód): {poz26:.2f} PLN")
-    print(f"Poz. 29 (Podstawa opodatkowania): {poz29}.00 PLN")
-    print(f"Poz. 30 (Stawka podatku): {int(poz30_rate*100)}%")
-    print(f"Poz. 31 (Podatek od dochodów z poz. 29): {poz31:.2f} PLN")
-    print(f"Poz. 32 (Podatek zapłacony za granicą): {poz32:.2f} PLN")
-    print(f"Poz. 33 (Podatek należny): {tax_final:.2f} PLN")
-
-    print("\nPIT-ZG:")
-    print(f"Poz. 29 (Dochód, o którym mowa w art. 30b ust.5 i 5b): {pitzg_poz29:.2f} PLN")
-    print(f"Poz. 30 (Podatek zapłacony za granicą od dochodów z poz. 29): {pitzg_poz30:.2f} PLN")
-
-if __name__ == "__main__":
-    main()
+    return {
+        'year': year,
+        'poz22': poz22,
+        'poz23': poz23,
+        'poz26': poz26,
+        'poz29': poz29,
+        'poz30_rate': poz30_rate,
+        'poz31': poz31,
+        'poz32': poz32,
+        'tax_final': tax_final,
+        'pitzg_poz29': pitzg_poz29,
+        'pitzg_poz30': pitzg_poz30,
+    }

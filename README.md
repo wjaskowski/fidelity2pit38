@@ -4,7 +4,7 @@ Converts transaction history from Fidelity to PIT-38.
 
 ## Usage
 ```sh
-python fidelity2pit38.py "Transaction history.csv"
+uv run fidelity2pit38 "Transaction history.csv"
 ```
 
 Examplary output
@@ -26,9 +26,9 @@ Poz. 30 (Podatek zapłacony za granicą od dochodów z poz. 29): 7.34 PLN
 
 ### Non-FIFO
 
-If instead of FIFO, you prefere to use information about the specific stocks you sold use
+If instead of FIFO, you prefer to use information about the specific stocks you sold use
 ```sh
-fidelity2pit38.py Transaction\ history.csv --method custom --custom_summary stock-sales.txt
+uv run fidelity2pit38 "Transaction history.csv" --method custom --custom_summary stock-sales.txt
 ```
 The stock-sales.txt file can be created by copy&paste from Fidelity -> Statements / Records -> Custom Transaction Summary -> (Select year) View Transactions -> Stock Sales (select & copy the whole table)
 

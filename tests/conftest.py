@@ -1,16 +1,13 @@
-import sys
 from pathlib import Path
 from unittest.mock import patch
 
 import pandas as pd
 import pytest
 
+import fidelity2pit38
+
 PROJECT_DIR = Path(__file__).parent.parent
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
-
-sys.path.insert(0, str(PROJECT_DIR))
-
-import fidelity2pit38  # noqa: E402
 
 
 @pytest.fixture
@@ -78,7 +75,7 @@ def mock_nbp_read_csv(nbp_fixture_csv_path):
             return original_read_csv(nbp_fixture_csv_path, **kwargs)
         return original_read_csv(path_or_url, **kwargs)
 
-    return patch("fidelity2pit38.pd.read_csv", side_effect=_mock)
+    return patch("fidelity2pit38.core.pd.read_csv", side_effect=_mock)
 
 
 @pytest.fixture
