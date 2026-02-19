@@ -4,9 +4,10 @@
 
 import io
 import logging
+import re
 import ssl
 import urllib.request
-from decimal import Decimal, ROUND_CEILING
+from decimal import Decimal, ROUND_CEILING, ROUND_HALF_UP
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -170,8 +171,15 @@ def calculate_rate_dates(settlement_dates: pd.Series) -> pd.Series:
     Returns:
         Series of rate-date timestamps (one Polish business day earlier).
     """
-    pl_bd1 = CustomBusinessDay(calendar=Poland(), n=1)
-    return settlement_dates - pl_bd1
+    pl_calendar = Poland()
+    rate_dates: List[Optional[pd.Timestamp]] = []
+    for d in settlement_dates:
+        if pd.isna(d):
+            rate_dates.append(pd.NaT)
+            continue
+        prev_pl_workday = pl_calendar.add_working_days(pd.Timestamp(d).date(), -1)
+        rate_dates.append(pd.Timestamp(prev_pl_workday))
+    return pd.Series(rate_dates, index=settlement_dates.index)
 
 
 def merge_with_rates(tx: pd.DataFrame, nbp_rates: pd.DataFrame) -> pd.DataFrame:
@@ -272,12 +280,14 @@ def process_custom(merged: pd.DataFrame, custom_summary_path: Union[str, List[st
     'Stock source', etc. Each row identifies a specific lot to match against
     the transaction history.
 
-    Cost basis depends on the 'Stock source' column:
-      - 'RS' (Restricted Stock / RSU): cost = 0 (vesting FMV already taxed
-        as ordinary income, so Polish cost basis is zero).
-      - 'SP' (ESPP): cost derived from the matching 'YOU BOUGHT ESPP###'
-        transaction in the history, converted to PLN via the buy's rate.
-      - Other sources: cost derived from the matching buy transaction.
+    Cost basis logic:
+      - Preferred: if the custom file provides parseable 'Cost basis', this
+        value is treated as the lot USD basis and converted to PLN using the
+        matched acquisition transaction's exchange rate.
+      - Fallback (when 'Cost basis' is missing/unparseable):
+        - 'RS' (Restricted Stock / RSU): cost = 0.0.
+        - 'SP' (ESPP): cost derived from matching 'YOU BOUGHT ESPP###' rows.
+        - Other sources: cost derived from matching buy transactions.
 
     Sale and buy lookups try trade_date first, then fall back to
     settlement_date, to handle date ambiguity in Fidelity exports.
@@ -288,7 +298,7 @@ def process_custom(merged: pd.DataFrame, custom_summary_path: Union[str, List[st
                 and 'amount_pln'.
         custom_summary_path: Path (or list of paths) to tab-separated custom
                 summary TXT file(s).
-        year: If set, only rows whose sale date falls in this year are matched.
+        year: If set, only rows matched to sales settling in this year are included.
 
     Returns:
         Tuple of (total_proceeds, total_costs, total_gain) in PLN.
@@ -303,24 +313,93 @@ def process_custom(merged: pd.DataFrame, custom_summary_path: Union[str, List[st
     custom['Date sold']     = pd.to_datetime(custom['Date sold or transferred'], format='%b-%d-%Y', errors='coerce')
     custom['Date acquired'] = pd.to_datetime(custom['Date acquired'],              format='%b-%d-%Y', errors='coerce')
     custom['Quantity']      = pd.to_numeric(custom['Quantity'],                    errors='coerce')
+    if 'Cost basis' in custom.columns:
+        cost_basis_raw = custom['Cost basis'].astype(str).str.strip()
+        paren_negative = cost_basis_raw.str.match(r'^\(.*\)$', na=False)
+        cost_basis_clean = cost_basis_raw.str.replace(r'[\s$,()]', '', regex=True)
+        custom['Cost basis USD'] = pd.to_numeric(cost_basis_clean, errors='coerce')
+        custom.loc[paren_negative, 'Cost basis USD'] = (
+            -custom.loc[paren_negative, 'Cost basis USD'].abs()
+        )
+    else:
+        custom['Cost basis USD'] = pd.NA
+
+    custom['Date sold norm'] = custom['Date sold'].dt.normalize()
     if year is not None:
-        custom = custom[custom['Date sold'].dt.year == year]
+        sells_in_year = merged[
+            merged['Transaction type'].str.contains('YOU SOLD', na=False) &
+            (merged['settlement_date'].dt.year == year)
+        ]
+        allowed_sale_dates = pd.Index(sells_in_year['trade_date_norm'].dropna().unique()).union(
+            pd.Index(sells_in_year['settlement_norm'].dropna().unique())
+        )
+        custom = custom[custom['Date sold'].isna() | custom['Date sold norm'].isin(allowed_sale_dates)]
+
     check_custom_summary_rows_valid(custom)
     check_custom_sale_date_quantities(custom, merged, year=year)
     check_custom_acquired_quantities(custom, merged)
 
     allocs = []
     for _, row in custom.iterrows():
-        sale_date = row['Date sold'].normalize()
+        sale_date = row['Date sold norm']
         acq_date  = row['Date acquired'].normalize()
         qty       = row['Quantity']
         source    = row.get('Stock source')
-        custom_symbol = row.get('Symbol')
-        if pd.isna(custom_symbol):
-            custom_symbol = row.get('Investment name')
+        reported_cost_basis_usd = row.get('Cost basis USD')
+        custom_symbol = None
+        for symbol_col in ('Symbol', 'Ticker', 'Security Symbol'):
+            candidate = row.get(symbol_col)
+            if pd.notna(candidate):
+                txt = str(candidate).strip()
+                if txt and txt != '-':
+                    custom_symbol = txt
+                    break
+        custom_investment_name = row.get('Investment name')
+        if pd.notna(custom_investment_name):
+            custom_investment_name = str(custom_investment_name).strip()
+            if not custom_investment_name or custom_investment_name == '-':
+                custom_investment_name = None
 
         if pd.isna(sale_date) or pd.isna(acq_date) or pd.isna(qty) or qty <= 0:
             continue
+
+        def _apply_custom_identifier_filter(df: pd.DataFrame, label: str, date_value: pd.Timestamp) -> pd.DataFrame:
+            if df.empty:
+                return df
+
+            if custom_symbol:
+                symbol_upper = custom_symbol.upper()
+                if 'Symbol' in df.columns:
+                    symbol_col = df['Symbol'].astype(str).str.strip().str.upper()
+                    exact_mask = symbol_col == symbol_upper
+                    if exact_mask.any():
+                        return df[exact_mask]
+
+                if 'Investment name' in df.columns:
+                    investment_col = df['Investment name'].astype(str).str.strip()
+                    exact_name_mask = investment_col.str.upper() == symbol_upper
+                    if exact_name_mask.any():
+                        return df[exact_name_mask]
+                    token_mask = investment_col.str.contains(
+                        rf"\b{re.escape(custom_symbol)}\b", case=False, regex=True, na=False
+                    )
+                    if token_mask.any():
+                        return df[token_mask]
+
+                logging.error(
+                    "Custom summary inconsistency: Symbol '%s' could not be matched to %s rows on %s.",
+                    custom_symbol,
+                    label,
+                    date_value.date(),
+                )
+                return df.iloc[0:0]
+
+            if custom_investment_name and 'Investment name' in df.columns:
+                investment_col = df['Investment name'].astype(str).str.strip()
+                name_mask = investment_col.str.upper() == custom_investment_name.upper()
+                if name_mask.any():
+                    return df[name_mask]
+            return df
 
         # match sale by trade_date or settlement_date
         sale_tx = merged[
@@ -332,8 +411,7 @@ def process_custom(merged: pd.DataFrame, custom_summary_path: Union[str, List[st
                 (merged['settlement_norm'] == sale_date) &
                 merged['Transaction type'].str.contains('YOU SOLD', na=False)
             ]
-        if pd.notna(custom_symbol) and 'Investment name' in merged.columns:
-            sale_tx = sale_tx[sale_tx['Investment name'] == custom_symbol]
+        sale_tx = _apply_custom_identifier_filter(sale_tx, label='sale', date_value=sale_date)
         if not check_custom_sale_record_exists(sale_tx, sale_date):
             continue
         check_custom_sale_match_unambiguous(sale_date, len(sale_tx))
@@ -343,9 +421,9 @@ def process_custom(merged: pd.DataFrame, custom_summary_path: Union[str, List[st
         proceeds   = round(qty * price_per, 2)
 
         # determine cost
-        if source == 'RS':
-            cost = 0.0
-        else:
+        buy = None
+        need_buy_lookup = pd.notna(reported_cost_basis_usd) or source != 'RS'
+        if need_buy_lookup:
             # ESPP: match buy by trade_date or settlement_date
             buy_tx = merged[
                 (merged['trade_date_norm'] == acq_date) &
@@ -367,7 +445,37 @@ def process_custom(merged: pd.DataFrame, custom_summary_path: Union[str, List[st
             if not check_custom_buy_record_exists(buy_tx, acq_date, source):
                 continue
             check_custom_buy_match_unambiguous(acq_date, source, len(buy_tx))
-            buy      = buy_tx.iloc[0]
+            buy = buy_tx.iloc[0]
+
+        if pd.notna(reported_cost_basis_usd):
+            if reported_cost_basis_usd < 0:
+                logging.error(
+                    "Custom summary inconsistency: negative Cost basis %.2f USD for sale date %s.",
+                    float(reported_cost_basis_usd),
+                    sale_date.date(),
+                )
+                continue
+            if buy is None or pd.isna(buy.get('rate')):
+                logging.error(
+                    "Custom summary inconsistency: cannot convert Cost basis to PLN "
+                    "for sale date %s due to missing acquisition-rate match.",
+                    sale_date.date(),
+                )
+                continue
+            cost = round(float(reported_cost_basis_usd) * float(buy['rate']), 2)
+        elif source == 'RS':
+            logging.warning(
+                "Custom summary fallback: missing/invalid Cost basis for RS lot sold on %s; using 0.0 PLN cost.",
+                sale_date.date(),
+            )
+            cost = 0.0
+        else:
+            if source == 'SP':
+                logging.warning(
+                    "Custom summary fallback: missing/invalid Cost basis for SP lot sold on %s; "
+                    "deriving cost from matching ESPP buy.",
+                    sale_date.date(),
+                )
             cost_per = (-buy['amount_pln']) / buy['shares'] if buy['shares'] else 0
             cost     = round(qty * cost_per, 2)
 
@@ -515,10 +623,9 @@ def _round_tax(value: float) -> int:
 
     Examples: 1234.49 -> 1234, 1234.50 -> 1235, 1234.99 -> 1235, 0.0 -> 0
     """
-    import math
     if value < 0:
         return 0
-    return int(math.floor(value + 0.5))
+    return int(Decimal(str(value)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
 def _round_up_to_grosz(value: float) -> float:
@@ -625,7 +732,14 @@ def calculate_pit38(
     """
     tx = load_transactions(tx_csv)
     tx['settlement_date'] = calculate_settlement_dates(tx['trade_date'], tx['Transaction type'])
+    dropped_settlement_rows = int(tx['settlement_date'].isna().sum())
     tx = tx.dropna(subset=['settlement_date'])
+    if dropped_settlement_rows:
+        logging.warning(
+            "Dropping %d transaction row(s) with missing settlement_date; "
+            "verify Transaction date parsing and transaction-type classification.",
+            dropped_settlement_rows,
+        )
 
     # Build NBP rate URLs dynamically from the years present in the data
     data_years = sorted(int(y) for y in tx['settlement_date'].dt.year.unique())

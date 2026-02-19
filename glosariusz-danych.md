@@ -39,9 +39,11 @@ Dokument opisuje znaczenie pól oraz to, jak dane są **faktycznie interpretowan
 - `YOU BOUGHT ...`
   - Zakup/nabycie (koszt w FIFO).
 - `YOU BOUGHT RSU####`
-  - Nabycie RSU; w `custom` przy `Stock source=RS` koszt lotu ustawiany jest na `0.0`.
+  - Nabycie RSU; w `custom` służy do dopasowania kursu nabycia przy przeliczeniu `Cost basis` do PLN.
+  - Jeśli `Cost basis` jest puste/niepoprawne i `Stock source=RS`, kod używa fallbacku `0.0` (z ostrzeżeniem).
 - `YOU BOUGHT ESPP### AS OF ...`
-  - Nabycie ESPP; w `custom` przy `Stock source=SP` koszt jest liczony z pasującego zakupu ESPP.
+  - Nabycie ESPP; w `custom` służy do dopasowania kursu nabycia przy przeliczeniu `Cost basis` do PLN.
+  - Jeśli `Cost basis` jest puste/niepoprawne i `Stock source=SP`, kod używa fallbacku z pasującego zakupu ESPP (z ostrzeżeniem).
 - `DIVIDEND RECEIVED`
   - Wypłata ujmowana w Części G (art. 30a); kod rozróżnia ją pomocniczo na:
   - `equity-like` (np. akcje),
@@ -64,8 +66,9 @@ Dokument opisuje znaczenie pól oraz to, jak dane są **faktycznie interpretowan
 
 ## 1.4 Reguły parsera (ważne dla jakości danych)
 
-- Przy wielu plikach CSV dane są łączone i deduplikowane (`drop_duplicates`).
-- Niepoprawny format daty daje `NaT`; rekordy bez `settlement_date` są pomijane później.
+- Przy wielu plikach CSV dane są łączone bez automatycznej deduplikacji.
+- Jeśli identyczne rekordy pojawią się w różnych plikach wejściowych, kod zgłasza błąd (`ValueError`) i wymaga usunięcia nakładania danych.
+- Niepoprawny format daty daje `NaT`; rekordy bez `settlement_date` są pomijane później, a pipeline loguje ostrzeżenie z liczbą odrzuconych wierszy.
 - Rok podatkowy filtrowany jest po `settlement_date` (nie po `Transaction date`).
 
 ## 2) `stock-sales*.txt` (tryb `--method custom`)
@@ -81,21 +84,27 @@ Plik jest TSV (separator tabulacji), zwykle z widoku Fidelity „Stock Sales”.
 - `Quantity`
   - Liczba akcji dla lotu.
 - `Cost basis`
-  - Kolumna informacyjna; kod jej nie używa do obliczeń.
+  - Podstawowe źródło kosztu lotu w `custom`.
+  - Kiedy da się sparsować kwotę USD, kod przelicza ją na PLN po kursie z dopasowanego nabycia (`Date acquired`).
+  - Jeśli brak/niepoprawna wartość, kod używa fallbacków zależnych od `Stock source`.
 - `Proceeds`
   - Kolumna informacyjna; kod jej nie używa bezpośrednio.
 - `Gain/loss`
   - Kolumna informacyjna; kod jej nie używa bezpośrednio.
 - `Stock source`
-  - Steruje wyborem kosztu:
-  - `RS` -> koszt lotu `0.0`.
-  - `SP` -> koszt z pasującego zakupu ESPP.
-  - inne wartości -> koszt z pasującego zakupu `YOU BOUGHT` (bez filtra ESPP).
+  - Steruje fallbackiem, gdy nie ma poprawnego `Cost basis`:
+  - `RS` -> fallback kosztu lotu `0.0`.
+  - `SP` -> fallback kosztu z pasującego zakupu ESPP.
+  - inne wartości -> fallback kosztu z pasującego zakupu `YOU BOUGHT` (bez filtra ESPP).
+- `Symbol` (opcjonalnie)
+  - Jeśli występuje, kod używa go do zawężenia dopasowania transakcji przy tej samej dacie sprzedaży.
+  - Najpierw próbuje dopasowanie po kolumnie `Symbol` (jeśli istnieje w danych transakcyjnych), a następnie po `Investment name`.
 
 ## 2.2 Jak działa dopasowanie w `custom` (istotne ograniczenia)
 
 - Sprzedaż jest wyszukiwana najpierw po `trade_date`, potem po `settlement_date`.
 - Zakup jest wyszukiwany najpierw po `trade_date`, potem po `settlement_date`.
+- Jeśli w wierszu custom podano `Symbol`, dopasowanie sprzedaży jest dodatkowo zawężane po tym symbolu.
 - Jeśli dla danej daty jest wiele pasujących rekordów sprzedaży/zakupu, kod bierze `iloc[0]` (pierwszy pasujący rekord).
 - W praktyce oznacza to, że przy wielu transakcjach tego samego dnia warto mieć dane tak przygotowane, by nie było niejednoznaczności ceny/lotu.
 

@@ -1,5 +1,3 @@
-import math
-
 import pytest
 
 from fidelity2pit38 import calculate_pit38_fields
@@ -32,6 +30,10 @@ class TestRoundTax:
 
     def test_one_grosz_above_half(self):
         assert _round_tax(0.50) == 1
+
+    def test_float_artifact_just_below_half_stays_down(self):
+        # Protect against float artifacts where floor(value + 0.5) can over-round.
+        assert _round_tax(0.49999999999999994) == 0
 
 
 class TestCapitalGainsSection:

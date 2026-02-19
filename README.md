@@ -25,21 +25,29 @@ You can also point to a different directory and select a different year:
 uv run fidelity2pit38 --data-dir /path/to/my-data --year 2024
 ```
 
-Examplary output
+Example output
 ```sh
-FINAL TAX SUMMARY:
-Poz. 22 (Przychód): 11929.28 PLN
-Poz. 23 (Koszty uzyskania): 5976.99 PLN
-Poz. 26 (Dochód): 5952.29 PLN
-Pos. 29 (Podstawa opodatkowania): 5952.00 PLN
-Poz. 30 (Stawka podatku): 19%
-Poz. 31 (Podatek od dochodów z poz. 29): 1130.88 PLN
-Poz. 32 (Podatek zapłacony za granicą): 7.34 PLN
-Poz. 33 (Podatek należny): 1124.00 PLN
+PIT-38 for year 2024:
 
-PIT-ZG:
-Poz. 29 (Dochód, o którym mowa w art. 30b ust.5 i 5b): 5977.76 PLN
-Poz. 30 (Podatek zapłacony za granicą od dochodów z poz. 29): 7.34 PLN
+Czesc C/D - Dochody ze zbycia papierow wartosciowych (art. 30b):
+  Poz. 22 (Przychod): 34033.91 PLN
+  Poz. 23 (Koszty uzyskania): 8865.00 PLN
+  Poz. 26 (Dochod): 25168.91 PLN
+  Poz. 29 (Podstawa opodatkowania): 25169.00 PLN
+  Poz. 30 (Stawka podatku): 19%
+  Poz. 31 (Podatek): 4782.11 PLN
+  Poz. 32 (Podatek zaplacony za granica): 0.00 PLN
+  Poz. 33 (Podatek nalezny): 4782.00 PLN
+
+Czesc G - Zryczaltowany podatek (art. 30a ust. 1 pkt 1-5):
+  Podstawa czesci G (lacznie): 52.47 PLN
+  Poz. 45 (Podatek 19% od przychodow czesci G): 9.97 PLN
+  Poz. 46 (Podatek zaplacony za granica): 7.86 PLN
+  Poz. 47 (Do zaplaty): 2.00 PLN
+
+PIT-ZG (dochody zagraniczne):
+  Poz. 29 (Dochod z art. 30b ust.5 i 5b): 25168.91 PLN
+  Poz. 30 (Podatek zaplacony za granica): 0.00 PLN
 ```
 
 ### Non-FIFO
