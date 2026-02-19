@@ -3,25 +3,6 @@ from typing import Optional
 
 import pandas as pd
 
-
-def strip_known_fidelity_footer_rows(tx_raw: pd.DataFrame) -> pd.DataFrame:
-    """Silently remove known non-transaction footer rows from Fidelity CSV exports."""
-    footer_mask = (
-        tx_raw['Transaction type'].isna() &
-        tx_raw['Investment name'].isna() &
-        tx_raw['Shares'].isna() &
-        tx_raw['Amount'].isna() &
-        tx_raw['Transaction date'].astype(str).str.contains(
-            r"Unless noted otherwise|Stock plan account history as of",
-            case=False,
-            na=False,
-        )
-    )
-    if footer_mask.any():
-        return tx_raw.loc[~footer_mask].copy()
-    return tx_raw
-
-
 def check_no_cross_file_duplicates(tx_raw: pd.DataFrame) -> None:
     """Raise if identical transaction rows are present in different source files."""
     if '_source_file' not in tx_raw.columns:

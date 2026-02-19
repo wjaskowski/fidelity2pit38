@@ -1,4 +1,5 @@
 import sys
+from decimal import Decimal
 from unittest.mock import patch
 
 import pandas as pd
@@ -58,16 +59,16 @@ class TestE2EFifo:
     def test_full_pipeline(self, example_tx_csv_path, nbp_rates_df):
         result = _run_pipeline_fifo(example_tx_csv_path, nbp_rates_df)
         # Section C/D: capital gains only (no dividends in poz22)
-        assert result["poz22"] == pytest.approx(34033.91, abs=0.01)  # proceeds only
-        assert result["poz23"] == pytest.approx(8865.00, abs=0.01)
-        assert result["poz26"] == pytest.approx(25168.91, abs=0.01)
-        assert result["poz29"] == 25169  # _round_tax(25168.91)
-        assert result["poz31"] == pytest.approx(4782.11, abs=0.01)  # 25169 * 0.19
-        assert result["poz32"] == pytest.approx(0.0)  # US doesn't withhold on stock sales
-        assert result["tax_final"] == 4782  # _round_tax(4782.11)
+        assert result["poz22"] == Decimal("34033.91")  # proceeds only
+        assert result["poz23"] == Decimal("8865.00")
+        assert result["poz26"] == Decimal("25168.91")
+        assert result["poz29"] == Decimal("25169")  # _round_tax(25168.91)
+        assert result["poz31"] == Decimal("4782.11")  # 25169 * 0.19
+        assert result["poz32"] == Decimal("0.00")  # US doesn't withhold on stock sales
+        assert result["tax_final"] == Decimal("4782")  # _round_tax(4782.11)
         # PIT-ZG
-        assert result["pitzg_poz29"] == pytest.approx(25168.91, abs=0.01)
-        assert result["pitzg_poz30"] == pytest.approx(0.0)  # no foreign tax on capital gains
+        assert result["pitzg_poz29"] == Decimal("25168.91")
+        assert result["pitzg_poz30"] == Decimal("0.00")  # no foreign tax on capital gains
 
 
 class TestE2ECustom:
@@ -108,13 +109,13 @@ class TestE2ECustom:
         )
 
         # Section C/D: capital gains (custom method from stock-sales file)
-        assert result["poz22"] == pytest.approx(34033.92, abs=0.01)  # proceeds only
-        assert result["poz23"] == pytest.approx(5571.40, abs=0.01)
-        assert result["poz26"] == pytest.approx(28462.52, abs=0.01)
-        assert result["poz29"] == 28463  # _round_tax(28462.52)
-        assert result["poz31"] == pytest.approx(5407.97, abs=0.01)  # 28463 * 0.19
-        assert result["poz32"] == pytest.approx(0.0)  # US doesn't withhold on stock sales
-        assert result["tax_final"] == 5408  # _round_tax(5407.97)
+        assert result["poz22"] == Decimal("34033.92")  # proceeds only
+        assert result["poz23"] == Decimal("5571.40")
+        assert result["poz26"] == Decimal("28462.52")
+        assert result["poz29"] == Decimal("28463")  # _round_tax(28462.52)
+        assert result["poz31"] == Decimal("5407.97")  # 28463 * 0.19
+        assert result["poz32"] == Decimal("0.00")  # US doesn't withhold on stock sales
+        assert result["tax_final"] == Decimal("5408")  # _round_tax(5407.97)
         assert total_gain == pytest.approx(28462.52, abs=0.01)
 
 
@@ -145,7 +146,6 @@ class TestMainCLI:
         capsys,
         monkeypatch,
         example_data_dir,
-        example_custom_summary_path,
         mock_nbp_read_csv,
     ):
         monkeypatch.setattr(
@@ -157,8 +157,6 @@ class TestMainCLI:
                 example_data_dir,
                 "--method",
                 "custom",
-                "--custom-summary",
-                example_custom_summary_path,
                 "--year",
                 "2024",
             ],
@@ -185,8 +183,8 @@ class TestMainCLI:
     def test_main_custom_without_summary_errors(
         self, tmp_path, monkeypatch, mock_nbp_read_csv
     ):
-        """custom method without --custom-summary and no discoverable TXTs should error."""
-        # tmp_path has no stock-sales*.txt files
+        """custom method with no discoverable TXTs should error."""
+        # tmp_path has no stock-sales*.txt files.
         (tmp_path / "Transaction history.csv").write_text("Transaction date,Transaction type,Investment name,Shares,Amount\n")
         monkeypatch.setattr(
             sys,
