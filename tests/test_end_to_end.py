@@ -6,6 +6,7 @@ import pytest
 
 import fidelity2pit38
 from fidelity2pit38 import (
+    calculate_pit38_fields,
     calculate_rate_dates,
     calculate_settlement_dates,
     compute_dividends_and_tax,
@@ -38,28 +39,9 @@ def _run_pipeline_fifo(tx_csv_path, nbp_rates_df, year=2024):
     total_proceeds, total_costs, total_gain = process_fifo(merged)
     total_dividends, foreign_tax = compute_dividends_and_tax(merged)
 
-    poz22 = round(total_proceeds + total_dividends, 2)
-    poz23 = round(total_costs, 2)
-    poz26 = round(poz22 - poz23, 2)
-    poz29 = int(round(poz26))
-    poz31 = round(poz29 * 0.19, 2)
-    poz32 = foreign_tax
-    raw_tax_due = poz31 - poz32
-    tax_final = int(max(raw_tax_due, 0) + 0.5)
-    pitzg_poz29 = total_gain
-    pitzg_poz30 = foreign_tax
-
-    return {
-        "poz22": poz22,
-        "poz23": poz23,
-        "poz26": poz26,
-        "poz29": poz29,
-        "poz31": poz31,
-        "poz32": poz32,
-        "tax_final": tax_final,
-        "pitzg_poz29": pitzg_poz29,
-        "pitzg_poz30": pitzg_poz30,
-    }
+    return calculate_pit38_fields(
+        total_proceeds, total_costs, total_gain, total_dividends, foreign_tax,
+    )
 
 
 # --- E2E via function composition ---
@@ -68,15 +50,17 @@ def _run_pipeline_fifo(tx_csv_path, nbp_rates_df, year=2024):
 class TestE2EFifo:
     def test_full_pipeline(self, example_tx_csv_path, nbp_rates_df):
         result = _run_pipeline_fifo(example_tx_csv_path, nbp_rates_df)
-        assert result["poz22"] == pytest.approx(11834.99, abs=0.01)
+        # Section C/D: capital gains only (no dividends in poz22)
+        assert result["poz22"] == pytest.approx(11860.43, abs=0.01)  # proceeds only
         assert result["poz23"] == pytest.approx(5944.98, abs=0.01)
-        assert result["poz26"] == pytest.approx(5890.01, abs=0.01)
-        assert result["poz29"] == 5890
-        assert result["poz31"] == pytest.approx(1119.10, abs=0.01)
-        assert result["poz32"] == pytest.approx(14.66, abs=0.01)
-        assert result["tax_final"] == 1104
+        assert result["poz26"] == pytest.approx(5915.45, abs=0.01)
+        assert result["poz29"] == 5915  # _round_tax(5915.45)
+        assert result["poz31"] == pytest.approx(1123.85, abs=0.01)  # 5915 * 0.19
+        assert result["poz32"] == pytest.approx(0.0)  # US doesn't withhold on stock sales
+        assert result["tax_final"] == 1124  # _round_tax(1123.85)
+        # PIT-ZG
         assert result["pitzg_poz29"] == pytest.approx(5915.45, abs=0.01)
-        assert result["pitzg_poz30"] == pytest.approx(14.66, abs=0.01)
+        assert result["pitzg_poz30"] == pytest.approx(0.0)  # no foreign tax on capital gains
 
 
 class TestE2ECustom:
@@ -107,22 +91,18 @@ class TestE2ECustom:
         )
         total_dividends, foreign_tax = compute_dividends_and_tax(merged)
 
-        poz22 = round(total_proceeds + total_dividends, 2)
-        poz23 = round(total_costs, 2)
-        poz26 = round(poz22 - poz23, 2)
-        poz29 = int(round(poz26))
-        poz31 = round(poz29 * 0.19, 2)
-        poz32 = foreign_tax
-        raw_tax_due = poz31 - poz32
-        tax_final = int(max(raw_tax_due, 0) + 0.5)
+        result = calculate_pit38_fields(
+            total_proceeds, total_costs, total_gain, total_dividends, foreign_tax,
+        )
 
-        assert poz22 == pytest.approx(11835.00, abs=0.01)
-        assert poz23 == pytest.approx(0.0)
-        assert poz26 == pytest.approx(11835.00, abs=0.01)
-        assert poz29 == 11835
-        assert poz31 == pytest.approx(2248.65, abs=0.01)
-        assert poz32 == pytest.approx(14.66, abs=0.01)
-        assert tax_final == 2234
+        # Section C/D: capital gains (custom method — all RSU, so costs=0)
+        assert result["poz22"] == pytest.approx(11860.44, abs=0.01)  # proceeds only
+        assert result["poz23"] == pytest.approx(0.0)
+        assert result["poz26"] == pytest.approx(11860.44, abs=0.01)
+        assert result["poz29"] == 11860  # _round_tax(11860.44)
+        assert result["poz31"] == pytest.approx(2253.40, abs=0.01)  # 11860 * 0.19
+        assert result["poz32"] == pytest.approx(0.0)  # US doesn't withhold on stock sales
+        assert result["tax_final"] == 2253  # _round_tax(2253.40)
         assert total_gain == pytest.approx(11860.44, abs=0.01)
 
 
@@ -140,9 +120,13 @@ class TestMainCLI:
             main()
         out = capsys.readouterr().out
         assert "PIT-38 for year 2024:" in out
+        assert "Czesc C/D" in out
         assert "Poz. 22" in out
         assert "Poz. 33" in out
-        assert "PIT-ZG:" in out
+        assert "Czesc G" in out
+        assert "Poz. 45" in out
+        assert "Poz. 47" in out
+        assert "PIT-ZG" in out
 
     def test_main_custom(
         self,
@@ -171,7 +155,7 @@ class TestMainCLI:
             main()
         out = capsys.readouterr().out
         assert "PIT-38 for year 2024:" in out
-        assert "PIT-ZG:" in out
+        assert "PIT-ZG" in out
 
     def test_main_year_flag(
         self, capsys, monkeypatch, example_data_dir, mock_nbp_read_csv

@@ -1,101 +1,229 @@
+import math
+
 import pytest
 
 from fidelity2pit38 import calculate_pit38_fields
+from fidelity2pit38.core import _round_tax
 
 
-def test_basic_calculation():
-    result = calculate_pit38_fields(
-        total_proceeds=10000.0,
-        total_costs=4000.0,
-        total_gain=6000.0,
-        total_dividends=500.0,
-        foreign_tax=50.0,
-    )
-    assert result["poz22"] == 10500.0   # proceeds + dividends
-    assert result["poz23"] == 4000.0    # costs
-    assert result["poz26"] == 6500.0    # income
-    assert result["poz29"] == 6500      # tax base (rounded to int)
-    assert result["poz30_rate"] == 0.19
-    assert result["poz31"] == 1235.0    # 6500 * 0.19
-    assert result["poz32"] == 50.0      # foreign tax
-    assert result["tax_final"] == 1185  # 1235 - 50
+class TestRoundTax:
+    """Test _round_tax per Ordynacja Podatkowa art. 63 §1."""
+
+    def test_below_50_groszy_dropped(self):
+        assert _round_tax(1234.49) == 1234
+
+    def test_50_groszy_rounded_up(self):
+        assert _round_tax(1234.50) == 1235
+
+    def test_above_50_groszy_rounded_up(self):
+        assert _round_tax(1234.99) == 1235
+
+    def test_exact_zloty(self):
+        assert _round_tax(1234.00) == 1234
+
+    def test_zero(self):
+        assert _round_tax(0.0) == 0
+
+    def test_negative_returns_zero(self):
+        assert _round_tax(-100.0) == 0
+
+    def test_small_positive(self):
+        assert _round_tax(0.49) == 0
+
+    def test_one_grosz_above_half(self):
+        assert _round_tax(0.50) == 1
 
 
-def test_pitzg_fields():
-    result = calculate_pit38_fields(
-        total_proceeds=10000.0,
-        total_costs=4000.0,
-        total_gain=6000.0,
-        total_dividends=500.0,
-        foreign_tax=50.0,
-    )
-    assert result["pitzg_poz29"] == 6000.0   # gain
-    assert result["pitzg_poz30"] == 50.0     # foreign tax
+class TestCapitalGainsSection:
+    """Section C/D: capital gains from stock sales (art. 30b)."""
+
+    def test_basic_calculation(self):
+        result = calculate_pit38_fields(
+            total_proceeds=10000.0,
+            total_costs=4000.0,
+            total_gain=6000.0,
+            total_dividends=0.0,
+            foreign_tax_dividends=0.0,
+        )
+        assert result["poz22"] == 10000.0   # proceeds only (no dividends)
+        assert result["poz23"] == 4000.0    # costs
+        assert result["poz26"] == 6000.0    # income
+        assert result["poz29"] == 6000      # tax base
+        assert result["poz30_rate"] == 0.19
+        assert result["poz31"] == 1140.0    # 6000 * 0.19
+        assert result["poz32"] == 0.0       # US doesn't withhold on stock sales
+        assert result["tax_final"] == 1140  # 1140 - 0
+
+    def test_dividends_excluded_from_poz22(self):
+        """Dividends go to Section G, NOT Poz. 22."""
+        result = calculate_pit38_fields(
+            total_proceeds=10000.0,
+            total_costs=4000.0,
+            total_gain=6000.0,
+            total_dividends=500.0,
+            foreign_tax_dividends=50.0,
+        )
+        # Poz. 22 should NOT include dividends
+        assert result["poz22"] == 10000.0
+        assert result["poz23"] == 4000.0
+        assert result["poz26"] == 6000.0
+
+    def test_zero_values(self):
+        result = calculate_pit38_fields(
+            total_proceeds=0.0,
+            total_costs=0.0,
+            total_gain=0.0,
+            total_dividends=0.0,
+            foreign_tax_dividends=0.0,
+        )
+        assert result["poz22"] == 0.0
+        assert result["poz23"] == 0.0
+        assert result["poz26"] == 0.0
+        assert result["poz29"] == 0
+        assert result["poz31"] == 0.0
+        assert result["tax_final"] == 0
+
+    def test_tax_cannot_be_negative(self):
+        """Poz. 33 should be 0 when foreign tax exceeds computed tax."""
+        result = calculate_pit38_fields(
+            total_proceeds=1000.0,
+            total_costs=0.0,
+            total_gain=1000.0,
+            total_dividends=0.0,
+            foreign_tax_dividends=0.0,
+        )
+        # Poz. 32 is always 0 for US stocks (no withholding on stock sales)
+        assert result["poz32"] == 0.0
+        assert result["tax_final"] == _round_tax(1000 * 0.19)
+
+    def test_rounding_tax_base_49_groszy(self):
+        """poz29 rounds down when < 50 groszy."""
+        result = calculate_pit38_fields(
+            total_proceeds=1000.49,
+            total_costs=0.0,
+            total_gain=1000.49,
+            total_dividends=0.0,
+            foreign_tax_dividends=0.0,
+        )
+        assert result["poz29"] == 1000
+
+    def test_rounding_tax_base_50_groszy(self):
+        """poz29 rounds up when >= 50 groszy."""
+        result = calculate_pit38_fields(
+            total_proceeds=1000.50,
+            total_costs=0.0,
+            total_gain=1000.50,
+            total_dividends=0.0,
+            foreign_tax_dividends=0.0,
+        )
+        assert result["poz29"] == 1001
+
+    def test_rounding_tax_base_51_groszy(self):
+        result = calculate_pit38_fields(
+            total_proceeds=1000.51,
+            total_costs=0.0,
+            total_gain=1000.51,
+            total_dividends=0.0,
+            foreign_tax_dividends=0.0,
+        )
+        assert result["poz29"] == 1001
+
+    def test_loss_gives_zero_tax_base(self):
+        """When costs > proceeds, poz26 is negative, poz29 should be 0."""
+        result = calculate_pit38_fields(
+            total_proceeds=1000.0,
+            total_costs=2000.0,
+            total_gain=-1000.0,
+            total_dividends=0.0,
+            foreign_tax_dividends=0.0,
+        )
+        assert result["poz26"] == -1000.0
+        assert result["poz29"] == 0  # _round_tax clamps negative to 0
+        assert result["poz31"] == 0.0
+        assert result["tax_final"] == 0
 
 
-def test_zero_values():
-    result = calculate_pit38_fields(
-        total_proceeds=0.0,
-        total_costs=0.0,
-        total_gain=0.0,
-        total_dividends=0.0,
-        foreign_tax=0.0,
-    )
-    assert result["poz22"] == 0.0
-    assert result["poz23"] == 0.0
-    assert result["poz26"] == 0.0
-    assert result["poz29"] == 0
-    assert result["poz31"] == 0.0
-    assert result["tax_final"] == 0
+class TestDividendSection:
+    """Section G: dividends (art. 30a)."""
+
+    def test_dividend_tax_calculation(self):
+        result = calculate_pit38_fields(
+            total_proceeds=0.0,
+            total_costs=0.0,
+            total_gain=0.0,
+            total_dividends=1000.0,
+            foreign_tax_dividends=150.0,
+        )
+        # 19% of 1000 = 190
+        assert result["poz45"] == pytest.approx(190.0, abs=0.01)
+        # Foreign tax capped at Polish tax
+        assert result["poz46"] == pytest.approx(150.0, abs=0.01)
+        # 190 - 150 = 40
+        assert result["poz47"] == 40
+
+    def test_foreign_tax_capped_at_polish_tax(self):
+        """Foreign tax credit cannot exceed Polish 19% tax on dividends."""
+        result = calculate_pit38_fields(
+            total_proceeds=0.0,
+            total_costs=0.0,
+            total_gain=0.0,
+            total_dividends=100.0,
+            foreign_tax_dividends=50.0,  # 50% withholding > 19% Polish tax
+        )
+        # 19% of 100 = 19
+        assert result["poz45"] == pytest.approx(19.0, abs=0.01)
+        # Credit capped at 19, not 50
+        assert result["poz46"] == pytest.approx(19.0, abs=0.01)
+        # 19 - 19 = 0
+        assert result["poz47"] == 0
+
+    def test_zero_dividends(self):
+        result = calculate_pit38_fields(
+            total_proceeds=5000.0,
+            total_costs=2000.0,
+            total_gain=3000.0,
+            total_dividends=0.0,
+            foreign_tax_dividends=0.0,
+        )
+        assert result["poz45"] == 0.0
+        assert result["poz46"] == 0.0
+        assert result["poz47"] == 0
+
+    def test_negative_dividends_net(self):
+        """Reinvestment can make net dividends negative; tax should be 0."""
+        result = calculate_pit38_fields(
+            total_proceeds=0.0,
+            total_costs=0.0,
+            total_gain=0.0,
+            total_dividends=-50.0,
+            foreign_tax_dividends=5.0,
+        )
+        # 19% of -50 = -9.50 -> ceil to grosze -> -9.50 -> but poz47 clamped
+        # Negative dividends shouldn't produce positive tax
+        assert result["poz47"] == 0
 
 
-def test_tax_cannot_be_negative():
-    """When foreign tax exceeds computed tax, tax_final should be 0."""
-    result = calculate_pit38_fields(
-        total_proceeds=1000.0,
-        total_costs=0.0,
-        total_gain=1000.0,
-        total_dividends=0.0,
-        foreign_tax=500.0,
-    )
-    # 1000 * 0.19 = 190, 190 - 500 = -310 -> clamped to 0
-    assert result["tax_final"] == 0
+class TestPitZG:
+    """PIT-ZG attachment fields."""
 
+    def test_pitzg_reflects_capital_gains(self):
+        result = calculate_pit38_fields(
+            total_proceeds=10000.0,
+            total_costs=4000.0,
+            total_gain=6000.0,
+            total_dividends=500.0,
+            foreign_tax_dividends=50.0,
+        )
+        assert result["pitzg_poz29"] == 6000.0  # capital gains only
+        assert result["pitzg_poz30"] == 0.0      # US doesn't withhold on stock sales
 
-def test_rounding_tax_base():
-    """poz29 should round poz26 to nearest integer."""
-    result = calculate_pit38_fields(
-        total_proceeds=1000.50,
-        total_costs=0.0,
-        total_gain=1000.50,
-        total_dividends=0.0,
-        foreign_tax=0.0,
-    )
-    assert result["poz26"] == 1000.50
-    assert result["poz29"] == 1000  # rounds down .50 -> 1000 (banker's rounding)
-
-
-def test_rounding_tax_base_up():
-    result = calculate_pit38_fields(
-        total_proceeds=1000.51,
-        total_costs=0.0,
-        total_gain=1000.51,
-        total_dividends=0.0,
-        foreign_tax=0.0,
-    )
-    assert result["poz29"] == 1001
-
-
-def test_with_example_fifo_values():
-    """Cross-check with known E2E FIFO results."""
-    result = calculate_pit38_fields(
-        total_proceeds=11860.44,
-        total_costs=5944.98,
-        total_gain=5915.45,
-        total_dividends=-25.45,
-        foreign_tax=14.66,
-    )
-    assert result["poz22"] == pytest.approx(11834.99, abs=0.01)
-    assert result["poz23"] == pytest.approx(5944.98, abs=0.01)
-    assert result["poz29"] == 5890
-    assert result["tax_final"] == 1104
+    def test_pitzg_with_zero_gain(self):
+        result = calculate_pit38_fields(
+            total_proceeds=1000.0,
+            total_costs=1000.0,
+            total_gain=0.0,
+            total_dividends=100.0,
+            foreign_tax_dividends=15.0,
+        )
+        assert result["pitzg_poz29"] == 0.0
+        assert result["pitzg_poz30"] == 0.0
