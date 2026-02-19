@@ -58,8 +58,11 @@ def main() -> None:
     print(f"  Poz. 32 (Podatek zaplacony za granica): {result['poz32']:.2f} PLN")
     print(f"  Poz. 33 (Podatek nalezny): {result['tax_final']:.2f} PLN")
 
-    print("\nCzesc G - Zryczaltowany podatek od dywidend (art. 30a):")
-    print(f"  Poz. 45 (Podatek 19% od dywidend): {result['poz45']:.2f} PLN")
+    print("\nCzesc G - Zryczaltowany podatek (art. 30a ust. 1 pkt 1-5):")
+    print(f"  Podstawa czesci G (lacznie): {result['section_g_total_income']:.2f} PLN")
+    print(f"    w tym dywidendy (akcje): {result['section_g_equity_dividends']:.2f} PLN")
+    print(f"    w tym fundusze/MMF: {result['section_g_fund_distributions']:.2f} PLN")
+    print(f"  Poz. 45 (Podatek 19% od przychodow czesci G): {result['poz45']:.2f} PLN")
     print(f"  Poz. 46 (Podatek zaplacony za granica): {result['poz46']:.2f} PLN")
     print(f"  Poz. 47 (Do zaplaty): {result['poz47']:.2f} PLN")
 
