@@ -48,7 +48,7 @@ def main() -> None:
     )
 
     print(f"\n\nPIT-38 for year {result['year']}:")
-    print(f"\nCzesc C/D - Dochody ze zbycia papierow wartosciowych (art. 30b):")
+    print("\nCzesc C/D - Dochody ze zbycia papierow wartosciowych (art. 30b):")
     print(f"  Poz. 22 (Przychod): {result['poz22']:.2f} PLN")
     print(f"  Poz. 23 (Koszty uzyskania): {result['poz23']:.2f} PLN")
     print(f"  Poz. 26 (Dochod): {result['poz26']:.2f} PLN")
@@ -58,11 +58,11 @@ def main() -> None:
     print(f"  Poz. 32 (Podatek zaplacony za granica): {result['poz32']:.2f} PLN")
     print(f"  Poz. 33 (Podatek nalezny): {result['tax_final']:.2f} PLN")
 
-    print(f"\nCzesc G - Zryczaltowany podatek od dywidend (art. 30a):")
+    print("\nCzesc G - Zryczaltowany podatek od dywidend (art. 30a):")
     print(f"  Poz. 45 (Podatek 19% od dywidend): {result['poz45']:.2f} PLN")
     print(f"  Poz. 46 (Podatek zaplacony za granica): {result['poz46']:.2f} PLN")
     print(f"  Poz. 47 (Do zaplaty): {result['poz47']:.2f} PLN")
 
-    print(f"\nPIT-ZG (dochody zagraniczne):")
+    print("\nPIT-ZG (dochody zagraniczne):")
     print(f"  Poz. 29 (Dochod z art. 30b ust.5 i 5b): {result['pitzg_poz29']:.2f} PLN")
     print(f"  Poz. 30 (Podatek zaplacony za granica): {result['pitzg_poz30']:.2f} PLN")
