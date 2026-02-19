@@ -4,6 +4,11 @@ Creates PIT-28 from your Fidelity history.
 
 **News**: Updated to handle 2025, but I am still checking if it works correctly.
 
+## Documentation
+
+- Tax/legal basis used in this project: [`podstawa-podatkowa.md`](podstawa-podatkowa.md)
+- Glossary of transaction/sales fields and symbols: [`glosariusz-danych.md`](glosariusz-danych.md)
+
 ## Usage
 
 1. Go to your Fidelity -> Stock Plan Accounts -> Activity -> Custom Date -> Jan-01-2025-Dec-31-2025 -> Export -> `Transaction history 2025.csv`
