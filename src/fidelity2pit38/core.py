@@ -212,8 +212,21 @@ def process_fifo(merged: pd.DataFrame, year: Optional[int] = None) -> Tuple[floa
     for _, sale in sells.iterrows():
         qty = abs(sale['shares'])
         price_per = sale['amount_pln'] / qty if qty else 0
+        available_qty = buys[buys['remaining'] > 0]['remaining'].sum()
+        if qty > available_qty:
+            logging.error(
+                f"FIFO inconsistency: attempting to sell {qty:.4f} shares on "
+                f"{sale['settlement_date'].date()}, but only {available_qty:.4f} shares remain in buy lots."
+            )
         while qty > 0:
-            idx = buys[buys['remaining'] > 0].index.min()
+            open_lots = buys[buys['remaining'] > 0]
+            if open_lots.empty:
+                logging.error(
+                    f"FIFO inconsistency: no remaining buy lots for sale on "
+                    f"{sale['settlement_date'].date()}; unmatched quantity {qty:.4f} shares."
+                )
+                break
+            idx = open_lots.index.min()
             lot = buys.loc[idx]
             match = min(qty, lot['remaining'])
             cost_per = (-lot['amount_pln']) / lot['shares'] if lot['shares'] else 0
@@ -272,12 +285,76 @@ def process_custom(merged: pd.DataFrame, custom_summary_path: Union[str, List[st
     if year is not None:
         custom = custom[custom['Date sold'].dt.year == year]
 
+    invalid_rows = custom[
+        custom['Date sold'].isna() |
+        custom['Date acquired'].isna() |
+        custom['Quantity'].isna() |
+        (custom['Quantity'] <= 0)
+    ]
+    if len(invalid_rows):
+        logging.error(
+            f"Custom summary inconsistency: {len(invalid_rows)} row(s) have invalid "
+            "Date sold/Date acquired/Quantity and will be skipped."
+        )
+
+    # Validate sale-date quantities from custom summary against transaction history.
+    sells = merged[merged['Transaction type'].str.contains('YOU SOLD', na=False)].copy()
+    if year is not None:
+        sells = sells[sells['settlement_date'].dt.year == year]
+    trade_sale_qty = sells.groupby(sells['trade_date_norm'])['shares'].sum().abs()
+    settle_sale_qty = sells.groupby(sells['settlement_norm'])['shares'].sum().abs()
+    custom_valid_sale = custom.dropna(subset=['Date sold', 'Quantity']).copy()
+    custom_valid_sale['Date sold norm'] = custom_valid_sale['Date sold'].dt.normalize()
+    custom_sale_qty = custom_valid_sale.groupby('Date sold norm')['Quantity'].sum()
+    for sale_date, custom_qty in custom_sale_qty.items():
+        trade_qty = float(trade_sale_qty.get(sale_date, 0.0))
+        settle_qty = float(settle_sale_qty.get(sale_date, 0.0))
+        available_qty = trade_qty if trade_qty > 0 else settle_qty
+        if available_qty == 0:
+            logging.error(
+                f"Custom summary inconsistency: no YOU SOLD transaction found for sale date {sale_date.date()}."
+            )
+        elif custom_qty > available_qty:
+            logging.error(
+                f"Custom summary inconsistency: sale-date quantity {custom_qty:.4f} on {sale_date.date()} "
+                f"exceeds available sold quantity {available_qty:.4f}."
+            )
+
+    # Validate acquired quantities by source/date against available buy lots.
+    buys = merged[merged['Transaction type'].str.contains('YOU BOUGHT', na=False)].copy()
+    custom_valid_acq = custom.dropna(subset=['Date acquired', 'Quantity', 'Stock source']).copy()
+    custom_valid_acq['Date acquired norm'] = custom_valid_acq['Date acquired'].dt.normalize()
+    for (acq_date, source), group in custom_valid_acq.groupby(['Date acquired norm', 'Stock source']):
+        needed_qty = float(group['Quantity'].sum())
+        candidate = buys
+        if source == 'SP':
+            candidate = candidate[candidate['Transaction type'].str.contains('ESPP', na=False)]
+        elif source == 'RS':
+            candidate = candidate[candidate['Transaction type'].str.contains('RSU', na=False)]
+        trade_qty = float(candidate[candidate['trade_date_norm'] == acq_date]['shares'].sum())
+        settle_qty = float(candidate[candidate['settlement_norm'] == acq_date]['shares'].sum())
+        available_qty = trade_qty if trade_qty > 0 else settle_qty
+        if available_qty == 0:
+            logging.error(
+                f"Custom summary inconsistency: no matching buy lot for Date acquired={acq_date.date()} "
+                f"and Stock source={source}."
+            )
+        elif needed_qty > available_qty:
+            logging.error(
+                f"Custom summary inconsistency: acquired quantity {needed_qty:.4f} for "
+                f"Date acquired={acq_date.date()}, source={source} exceeds available buy quantity "
+                f"{available_qty:.4f}."
+            )
+
     allocs = []
     for _, row in custom.iterrows():
         sale_date = row['Date sold'].normalize()
         acq_date  = row['Date acquired'].normalize()
         qty       = row['Quantity']
         source    = row.get('Stock source')
+
+        if pd.isna(sale_date) or pd.isna(acq_date) or pd.isna(qty) or qty <= 0:
+            continue
 
         # match sale by trade_date or settlement_date
         sale_tx = merged[
@@ -292,6 +369,10 @@ def process_custom(merged: pd.DataFrame, custom_summary_path: Union[str, List[st
         if sale_tx.empty:
             logging.error(f"No sale record found for {sale_date}")
             continue
+        if len(sale_tx) > 1:
+            logging.error(
+                f"Custom summary ambiguity: {len(sale_tx)} sale rows match {sale_date.date()}; using the first one."
+            )
         sale = sale_tx.iloc[0]
         price_per = sale['amount_pln'] / abs(sale['shares']) if sale['shares'] else 0
         proceeds   = round(qty * price_per, 2)
@@ -317,6 +398,11 @@ def process_custom(merged: pd.DataFrame, custom_summary_path: Union[str, List[st
             if buy_tx.empty:
                 logging.error(f"No buy record found for {acq_date} (source={source})")
                 continue
+            if len(buy_tx) > 1:
+                logging.error(
+                    f"Custom summary ambiguity: {len(buy_tx)} buy rows match {acq_date.date()} "
+                    f"(source={source}); using the first one."
+                )
             buy      = buy_tx.iloc[0]
             cost_per = (-buy['amount_pln']) / buy['shares'] if buy['shares'] else 0
             cost     = round(qty * cost_per, 2)
@@ -383,10 +469,49 @@ def load_transactions(tx_csv: Union[str, List[str]]) -> pd.DataFrame:
     frames = [pd.read_csv(p) for p in paths]
     tx_raw = pd.concat(frames, ignore_index=True).drop_duplicates()
     tx = tx_raw.copy()
+    # Fidelity CSV exports may include footer text rows that are not transactions.
+    footer_mask = (
+        tx['Transaction type'].isna() &
+        tx['Investment name'].isna() &
+        tx['Shares'].isna() &
+        tx['Amount'].isna() &
+        tx['Transaction date'].astype(str).str.contains(
+            r"Unless noted otherwise|Stock plan account history as of",
+            case=False,
+            na=False,
+        )
+    )
+    if footer_mask.any():
+        # Silently drop known Fidelity footer rows.
+        tx = tx.loc[~footer_mask].copy()
     tx['Transaction type'] = tx['Transaction type'].astype(str).str.split(';').str[0]
     tx['trade_date']       = pd.to_datetime(tx['Transaction date'], format='%b-%d-%Y', errors='coerce')
     tx['shares']           = pd.to_numeric(tx['Shares'], errors='coerce')
     tx['amount_usd']       = pd.to_numeric(tx['Amount'].str.replace('[$,]', '', regex=True), errors='coerce')
+    invalid_trade_dates = tx['trade_date'].isna()
+    if invalid_trade_dates.any():
+        malformed_rows = tx[invalid_trade_dates & tx[['Transaction type', 'Investment name', 'Shares', 'Amount']].notna().any(axis=1)]
+        if len(malformed_rows):
+            logging.error(
+                f"Data inconsistency: {len(malformed_rows)} row(s) have invalid 'Transaction date' "
+                "with non-empty transaction fields."
+            )
+        ignored_blank_date_rows = int((invalid_trade_dates & ~tx[['Transaction type', 'Investment name', 'Shares', 'Amount']].notna().any(axis=1)).sum())
+        if ignored_blank_date_rows:
+            logging.info(
+                f"Ignoring {ignored_blank_date_rows} row(s) with empty transaction fields and invalid date."
+            )
+    market_mask = tx['Transaction type'].str.contains('YOU BOUGHT|YOU SOLD', na=False)
+    missing_market_shares = tx[market_mask]['shares'].isna().sum()
+    if missing_market_shares:
+        logging.error(
+            f"Data inconsistency: {missing_market_shares} market-trade row(s) have missing/invalid 'Shares'."
+        )
+    missing_market_amount = tx[market_mask]['amount_usd'].isna().sum()
+    if missing_market_amount:
+        logging.error(
+            f"Data inconsistency: {missing_market_amount} market-trade row(s) have missing/invalid 'Amount'."
+        )
     logging.info(f"Loaded {len(tx)} transactions from {len(paths)} file(s).")
     return tx
 
