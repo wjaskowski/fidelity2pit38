@@ -1,0 +1,5 @@
+Date sold or transferred	Date acquired	Quantity	Cost basis	Proceeds	Gain/loss	Stock source
+Feb-18-2025	Dec-13-2024	25.0000	$0.00	$3375.00	$3375.00	RS
+Oct-10-2025	Jun-16-2025	40.0000	$0.00	$4800.00	$4800.00	RS
+Oct-10-2025	Sep-15-2025	25.0000	$1750.00	$3000.00	$1250.00	SP
+Nov-12-2025	Sep-13-2024	15.0000	$780.00	$1725.00	$945.00	SP
