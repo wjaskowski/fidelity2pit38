@@ -1,6 +1,6 @@
 # fidelity2pit38
 
-Creates PIT-28 from your Fidelity history.
+Creates PIT-38 from your Fidelity history.
 
 **News**: Updated to handle 2025, but I am still checking if it works correctly.
 
@@ -44,7 +44,7 @@ Poz. 30 (Podatek zapłacony za granicą od dochodów z poz. 29): 7.34 PLN
 
 ### Non-FIFO
 
-**Warning**: untested at all
+**Warning**: [WIP]: probably doesn't work correctly
 
 If instead of FIFO, you prefer to use information about the specific stocks you sold use
 ```sh

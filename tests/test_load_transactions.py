@@ -47,10 +47,10 @@ def test_dollar_signs_stripped(example_tx_csv_path):
 
 
 def test_multi_csv_loading(example_tx_csv_path):
-    """Loading the same CSV twice should deduplicate overlap rows."""
+    """Loading the same CSV twice preserves both input streams."""
     single = load_transactions(example_tx_csv_path)
     double = load_transactions([example_tx_csv_path, example_tx_csv_path])
-    assert len(double) == len(single)
+    assert len(double) == 2 * len(single)
 
 
 def test_multi_csv_list_single(example_tx_csv_path):
@@ -78,14 +78,14 @@ def test_does_not_drop_identical_rows_in_single_csv(tmp_path):
     assert len(tx) == 2
 
 
-def test_multi_csv_overlap_keeps_max_multiplicity(tmp_path):
-    """Overlap dedupe should keep max count across files, not sum."""
+def test_multi_csv_overlap_raises_error(tmp_path):
+    """Identical rows across different files should raise a hard error."""
     file_a = tmp_path / "Transaction history A.csv"
     file_b = tmp_path / "Transaction history B.csv"
     header = "Transaction date,Transaction type,Investment name,Shares,Amount\n"
     row = "Jan-10-2025,YOU SOLD,ACME INC,-10.00,$1500.00\n"
-    file_a.write_text(header + row + row)
+    file_a.write_text(header + row)
     file_b.write_text(header + row)
 
-    tx = load_transactions([str(file_a), str(file_b)])
-    assert len(tx) == 2
+    with pytest.raises(ValueError, match="Duplicate transaction rows found across different CSV files"):
+        load_transactions([str(file_a), str(file_b)])
