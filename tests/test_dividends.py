@@ -7,7 +7,8 @@ from fidelity2pit38 import compute_dividends_and_tax
 def test_example_data(merged_example):
     dividends, foreign_tax = compute_dividends_and_tax(merged_example)
     assert dividends == pytest.approx(-25.4362, abs=0.01)
-    assert foreign_tax == pytest.approx(14.66, abs=0.01)
+    # One NON-RESIDENT TAX row in fixture data; no double-counting.
+    assert foreign_tax == pytest.approx(7.33, abs=0.01)
 
 
 def test_gross_dividend_only():
@@ -46,7 +47,7 @@ def test_no_dividends():
 
 
 def test_foreign_tax_non_resident():
-    """NON-RESIDENT TAX DIVIDEND RECEIVED matches both wd and wk filters (double-counted)."""
+    """NON-RESIDENT TAX DIVIDEND RECEIVED counted once via contains('NON-RESIDENT TAX')."""
     merged = pd.DataFrame(
         {
             "Transaction type": ["NON-RESIDENT TAX DIVIDEND RECEIVED"],
@@ -54,7 +55,33 @@ def test_foreign_tax_non_resident():
         }
     )
     dividends, foreign_tax = compute_dividends_and_tax(merged)
-    # wd: exact match on "NON-RESIDENT TAX DIVIDEND RECEIVED" -> -(-10) = 10
-    # wk: contains "NON-RESIDENT TAX" -> -(-10) = 10
-    # Total: 20.0 (this is the actual code behavior — double-counted)
-    assert foreign_tax == pytest.approx(20.0)
+    # Single filter: contains "NON-RESIDENT TAX" -> -(-10) = 10
+    assert foreign_tax == pytest.approx(10.0)
+
+
+def test_multiple_non_resident_tax_rows():
+    """Multiple withholding tax rows are summed correctly."""
+    merged = pd.DataFrame(
+        {
+            "Transaction type": [
+                "NON-RESIDENT TAX DIVIDEND RECEIVED",
+                "NON-RESIDENT TAX DIVIDEND RECEIVED",
+            ],
+            "amount_pln": [-10.0, -5.0],
+        }
+    )
+    dividends, foreign_tax = compute_dividends_and_tax(merged)
+    assert foreign_tax == pytest.approx(15.0)
+
+
+def test_dividends_not_in_foreign_tax():
+    """DIVIDEND RECEIVED should not be picked up by foreign tax filter."""
+    merged = pd.DataFrame(
+        {
+            "Transaction type": ["DIVIDEND RECEIVED"],
+            "amount_pln": [100.0],
+        }
+    )
+    dividends, foreign_tax = compute_dividends_and_tax(merged)
+    assert dividends == pytest.approx(100.0)
+    assert foreign_tax == pytest.approx(0.0)

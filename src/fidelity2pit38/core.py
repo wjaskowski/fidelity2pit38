@@ -338,13 +338,12 @@ def compute_dividends_and_tax(merged: pd.DataFrame, year: Optional[int] = None) 
       - 'REINVESTMENT' rows (dividends reinvested into shares; typically
         negative amounts representing the reinvestment outflow)
 
-    Foreign withholding tax sums (negated, since they appear as negative
-    amounts):
-      - 'NON-RESIDENT TAX DIVIDEND RECEIVED' (exact match)
-      - Any row containing 'NON-RESIDENT TAX' (broader match)
+    Foreign withholding tax: all rows containing 'NON-RESIDENT TAX' in the
+    transaction type. Amounts are negative in the source data and negated here
+    to report as a positive value.
 
-    Both are reported on PIT-38/PIT-ZG: dividends feed into Poz. 22 (income),
-    foreign tax into Poz. 32 (tax credit).
+    Dividends are taxed separately under art. 30a (Section G of PIT-38).
+    The foreign withholding tax on dividends feeds into Poz. 46 of Section G.
 
     Args:
         merged: Transaction DataFrame with 'Transaction type', 'amount_pln',
@@ -352,7 +351,7 @@ def compute_dividends_and_tax(merged: pd.DataFrame, year: Optional[int] = None) 
         year: If set, only rows settling in this year are included.
 
     Returns:
-        Tuple of (total_dividends_pln, foreign_tax_pln).
+        Tuple of (total_dividends_pln, foreign_tax_on_dividends_pln).
     """
     df = merged
     if year is not None:
@@ -360,10 +359,10 @@ def compute_dividends_and_tax(merged: pd.DataFrame, year: Optional[int] = None) 
     gross_div = df[df['Transaction type'] == 'DIVIDEND RECEIVED']['amount_pln'].sum()
     reinv_div = df[df['Transaction type'].str.contains('REINVESTMENT', na=False)]['amount_pln'].sum()
     total_dividends = gross_div + reinv_div
-    wd = -df[df['Transaction type'] == 'NON-RESIDENT TAX DIVIDEND RECEIVED']['amount_pln'].sum()
-    wk = -df[df['Transaction type'].str.contains('NON-RESIDENT TAX', na=False)]['amount_pln'].sum()
-    foreign_tax = round(wd + wk, 2) + 0.0  # +0.0 avoids -0.00 display
-    logging.info(f"Dividends PLN: {total_dividends:.2f}; Foreign tax PLN: {foreign_tax:.2f}")
+    # All NON-RESIDENT TAX rows (no double-counting)
+    foreign_tax = -df[df['Transaction type'].str.contains('NON-RESIDENT TAX', na=False)]['amount_pln'].sum()
+    foreign_tax = round(foreign_tax, 2) + 0.0  # +0.0 avoids -0.00 display
+    logging.info(f"Dividends PLN: {total_dividends:.2f}; Foreign tax on dividends PLN: {foreign_tax:.2f}")
     return total_dividends, foreign_tax
 
 
@@ -392,38 +391,81 @@ def load_transactions(tx_csv: Union[str, List[str]]) -> pd.DataFrame:
     return tx
 
 
+def _round_tax(value: float) -> int:
+    """Round to full PLN per Ordynacja Podatkowa art. 63 §1.
+
+    Fractional amounts below 50 groszy are dropped; 50 groszy and above
+    are rounded up to the next full zloty.
+
+    Examples: 1234.49 -> 1234, 1234.50 -> 1235, 1234.99 -> 1235, 0.0 -> 0
+    """
+    import math
+    if value < 0:
+        return 0
+    return int(math.floor(value + 0.5))
+
+
 def calculate_pit38_fields(
     total_proceeds: float,
     total_costs: float,
     total_gain: float,
     total_dividends: float,
-    foreign_tax: float,
+    foreign_tax_dividends: float,
 ) -> Dict[str, float]:
     """Compute PIT-38 and PIT-ZG field values from aggregated totals.
+
+    Section C/D (art. 30b) — capital gains from stock sales:
+      Poz. 22 = total proceeds (stock sales only, no dividends)
+      Poz. 23 = total costs
+      Poz. 26 = Poz. 22 - Poz. 23 (income)
+      Poz. 29 = tax base, rounded per Ordynacja art. 63 §1
+      Poz. 30 = 19% rate
+      Poz. 31 = Poz. 29 × 19%
+      Poz. 32 = foreign tax paid on capital gains (0 for Fidelity US stocks;
+                US doesn't withhold on stock sale proceeds)
+      Poz. 33 = max(Poz. 31 - Poz. 32, 0), rounded per art. 63
+
+    Section G (art. 30a) — dividends:
+      Poz. 45 = 19% tax on gross dividends (rounded to grosze up, per art.63 §1a)
+      Poz. 46 = foreign withholding tax on dividends
+      Poz. 47 = max(Poz. 45 - Poz. 46, 0) (rounded per art. 63)
+
+    PIT-ZG attachment — foreign income:
+      pitzg_poz29 = capital gains from foreign sources
+      pitzg_poz30 = foreign tax on capital gains (0 for US stocks)
 
     Args:
         total_proceeds: Total sale proceeds in PLN.
         total_costs: Total cost basis in PLN.
         total_gain: Net gain from stock sales in PLN (proceeds - costs).
-        total_dividends: Total dividend income in PLN.
-        foreign_tax: Total foreign withholding tax in PLN.
+        total_dividends: Total gross dividend income in PLN.
+        foreign_tax_dividends: Foreign withholding tax on dividends in PLN.
 
     Returns:
-        Dict with keys: poz22, poz23, poz26, poz29, poz30_rate, poz31,
-        poz32, tax_final, pitzg_poz29, pitzg_poz30.
+        Dict with PIT-38 Section C/D, Section G, and PIT-ZG fields.
     """
-    poz22 = round(total_proceeds + total_dividends, 2)
+    # --- Section C/D: capital gains (art. 30b) ---
+    poz22 = round(total_proceeds, 2)
     poz23 = round(total_costs, 2)
     poz26 = round(poz22 - poz23, 2)
-    poz29 = int(round(poz26))
+    poz29 = _round_tax(poz26)           # tax base
     poz30_rate = 0.19
     poz31 = round(poz29 * poz30_rate, 2)
-    poz32 = foreign_tax
-    raw_tax_due = poz31 - poz32
-    tax_final = int(max(raw_tax_due, 0) + 0.5)
+    # US does not withhold tax on stock sale proceeds; foreign tax on
+    # capital gains is 0 for Fidelity accounts.
+    poz32 = 0.0
+    tax_final = _round_tax(max(poz31 - poz32, 0))  # Poz. 33
 
+    # --- Section G: dividends (art. 30a) ---
+    import math
+    poz45 = math.ceil(round(total_dividends * poz30_rate, 2) * 100) / 100  # 19% rounded up to grosze
+    poz45 = round(poz45, 2) + 0.0
+    poz46 = round(min(foreign_tax_dividends, poz45), 2)  # credit capped at Polish tax
+    poz47 = _round_tax(max(poz45 - poz46, 0))
+
+    # --- PIT-ZG: foreign income ---
     pitzg_poz29 = total_gain
-    pitzg_poz30 = foreign_tax
+    pitzg_poz30 = poz32  # foreign tax on capital gains (not dividends)
 
     return {
         'poz22': poz22,
@@ -434,6 +476,9 @@ def calculate_pit38_fields(
         'poz31': poz31,
         'poz32': poz32,
         'tax_final': tax_final,
+        'poz45': poz45,
+        'poz46': poz46,
+        'poz47': poz47,
         'pitzg_poz29': pitzg_poz29,
         'pitzg_poz30': pitzg_poz30,
     }
