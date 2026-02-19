@@ -116,6 +116,38 @@ def test_no_sells_returns_zeros():
 
 def test_example_data_fifo(merged_example):
     proceeds, costs, gain = process_fifo(merged_example)
-    assert proceeds == pytest.approx(11860.43, abs=0.01)
-    assert costs == pytest.approx(5944.98, abs=0.01)
-    assert gain == pytest.approx(5915.45, abs=0.01)
+    assert proceeds == pytest.approx(34033.91, abs=0.01)
+    assert costs == pytest.approx(8865.00, abs=0.01)
+    assert gain == pytest.approx(25168.91, abs=0.01)
+
+
+def test_matches_fifo_by_investment_name():
+    merged = pd.DataFrame(
+        [
+            {
+                "Transaction type": "YOU BOUGHT",
+                "Investment name": "AAA",
+                "shares": 10.0,
+                "amount_pln": -1000.0,
+                "settlement_date": pd.Timestamp("2024-01-05"),
+            },
+            {
+                "Transaction type": "YOU BOUGHT",
+                "Investment name": "BBB",
+                "shares": 10.0,
+                "amount_pln": -500.0,
+                "settlement_date": pd.Timestamp("2024-01-06"),
+            },
+            {
+                "Transaction type": "YOU SOLD",
+                "Investment name": "AAA",
+                "shares": -10.0,
+                "amount_pln": 1200.0,
+                "settlement_date": pd.Timestamp("2024-06-05"),
+            },
+        ]
+    )
+    proceeds, costs, gain = process_fifo(merged)
+    assert proceeds == pytest.approx(1200.0, abs=0.01)
+    assert costs == pytest.approx(1000.0, abs=0.01)
+    assert gain == pytest.approx(200.0, abs=0.01)

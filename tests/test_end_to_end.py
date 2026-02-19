@@ -51,15 +51,15 @@ class TestE2EFifo:
     def test_full_pipeline(self, example_tx_csv_path, nbp_rates_df):
         result = _run_pipeline_fifo(example_tx_csv_path, nbp_rates_df)
         # Section C/D: capital gains only (no dividends in poz22)
-        assert result["poz22"] == pytest.approx(11860.43, abs=0.01)  # proceeds only
-        assert result["poz23"] == pytest.approx(5944.98, abs=0.01)
-        assert result["poz26"] == pytest.approx(5915.45, abs=0.01)
-        assert result["poz29"] == 5915  # _round_tax(5915.45)
-        assert result["poz31"] == pytest.approx(1123.85, abs=0.01)  # 5915 * 0.19
+        assert result["poz22"] == pytest.approx(34033.91, abs=0.01)  # proceeds only
+        assert result["poz23"] == pytest.approx(8865.00, abs=0.01)
+        assert result["poz26"] == pytest.approx(25168.91, abs=0.01)
+        assert result["poz29"] == 25169  # _round_tax(25168.91)
+        assert result["poz31"] == pytest.approx(4782.11, abs=0.01)  # 25169 * 0.19
         assert result["poz32"] == pytest.approx(0.0)  # US doesn't withhold on stock sales
-        assert result["tax_final"] == 1124  # _round_tax(1123.85)
+        assert result["tax_final"] == 4782  # _round_tax(4782.11)
         # PIT-ZG
-        assert result["pitzg_poz29"] == pytest.approx(5915.45, abs=0.01)
+        assert result["pitzg_poz29"] == pytest.approx(25168.91, abs=0.01)
         assert result["pitzg_poz30"] == pytest.approx(0.0)  # no foreign tax on capital gains
 
 
@@ -95,15 +95,15 @@ class TestE2ECustom:
             total_proceeds, total_costs, total_gain, total_dividends, foreign_tax,
         )
 
-        # Section C/D: capital gains (custom method — all RSU, so costs=0)
-        assert result["poz22"] == pytest.approx(11860.44, abs=0.01)  # proceeds only
-        assert result["poz23"] == pytest.approx(0.0)
-        assert result["poz26"] == pytest.approx(11860.44, abs=0.01)
-        assert result["poz29"] == 11860  # _round_tax(11860.44)
-        assert result["poz31"] == pytest.approx(2253.40, abs=0.01)  # 11860 * 0.19
+        # Section C/D: capital gains (custom method from stock-sales file)
+        assert result["poz22"] == pytest.approx(34033.92, abs=0.01)  # proceeds only
+        assert result["poz23"] == pytest.approx(5571.40, abs=0.01)
+        assert result["poz26"] == pytest.approx(28462.52, abs=0.01)
+        assert result["poz29"] == 28463  # _round_tax(28462.52)
+        assert result["poz31"] == pytest.approx(5407.97, abs=0.01)  # 28463 * 0.19
         assert result["poz32"] == pytest.approx(0.0)  # US doesn't withhold on stock sales
-        assert result["tax_final"] == 2253  # _round_tax(2253.40)
-        assert total_gain == pytest.approx(11860.44, abs=0.01)
+        assert result["tax_final"] == 5408  # _round_tax(5407.97)
+        assert total_gain == pytest.approx(28462.52, abs=0.01)
 
 
 # --- E2E via main() with stdout capture ---

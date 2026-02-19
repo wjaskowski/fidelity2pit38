@@ -6,12 +6,13 @@ import io
 import logging
 import ssl
 import urllib.request
+from decimal import Decimal, ROUND_CEILING
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import certifi
 import pandas as pd
-from pandas.tseries.holiday import USFederalHolidayCalendar
+from pandas.tseries.holiday import AbstractHolidayCalendar, GoodFriday, USFederalHolidayCalendar
 from pandas.tseries.offsets import CustomBusinessDay
 from workalendar.europe import Poland
 
@@ -33,6 +34,11 @@ from .validation import (
 
 # constant for switch from T+2 to T+1
 SWITCH_DATE = pd.Timestamp('2024-05-28')
+
+
+class USSettlementHolidayCalendar(AbstractHolidayCalendar):
+    """US settlement calendar: federal holidays plus Good Friday."""
+    rules = list(USFederalHolidayCalendar.rules) + [GoodFriday]
 
 
 def discover_transaction_files(directory: str) -> Tuple[List[str], List[str]]:
@@ -129,8 +135,8 @@ def calculate_settlement_dates(trade_dates: pd.Series, tx_types: pd.Series) -> p
     Returns:
         Series of settlement-date timestamps, aligned to the input index.
     """
-    us_bd1 = CustomBusinessDay(calendar=USFederalHolidayCalendar(), n=1)
-    us_bd2 = CustomBusinessDay(calendar=USFederalHolidayCalendar(), n=2)
+    us_bd1 = CustomBusinessDay(calendar=USSettlementHolidayCalendar(), n=1)
+    us_bd2 = CustomBusinessDay(calendar=USSettlementHolidayCalendar(), n=2)
 
     settlements: List[Optional[pd.Timestamp]] = []
     for d, ttype in zip(trade_dates, tx_types):
@@ -225,12 +231,20 @@ def process_fifo(merged: pd.DataFrame, year: Optional[int] = None) -> Tuple[floa
     buys['remaining'] = buys['shares']
     allocs = []
     for _, sale in sells.iterrows():
+        sale_investment = sale.get('Investment name') if 'Investment name' in sale.index else None
+
+        def _open_lots_for_sale() -> pd.DataFrame:
+            open_lots = buys[buys['remaining'] > 0]
+            if 'Investment name' in open_lots.columns and pd.notna(sale_investment):
+                open_lots = open_lots[open_lots['Investment name'] == sale_investment]
+            return open_lots
+
         qty = abs(sale['shares'])
         price_per = sale['amount_pln'] / qty if qty else 0
-        available_qty = buys[buys['remaining'] > 0]['remaining'].sum()
+        available_qty = _open_lots_for_sale()['remaining'].sum()
         check_fifo_sale_not_oversell(sale['settlement_date'], qty, available_qty)
         while qty > 0:
-            open_lots = buys[buys['remaining'] > 0]
+            open_lots = _open_lots_for_sale()
             if not check_fifo_open_lots_available(sale['settlement_date'], qty, has_open_lots=not open_lots.empty):
                 break
             idx = open_lots.index.min()
@@ -301,6 +315,9 @@ def process_custom(merged: pd.DataFrame, custom_summary_path: Union[str, List[st
         acq_date  = row['Date acquired'].normalize()
         qty       = row['Quantity']
         source    = row.get('Stock source')
+        custom_symbol = row.get('Symbol')
+        if pd.isna(custom_symbol):
+            custom_symbol = row.get('Investment name')
 
         if pd.isna(sale_date) or pd.isna(acq_date) or pd.isna(qty) or qty <= 0:
             continue
@@ -315,10 +332,13 @@ def process_custom(merged: pd.DataFrame, custom_summary_path: Union[str, List[st
                 (merged['settlement_norm'] == sale_date) &
                 merged['Transaction type'].str.contains('YOU SOLD', na=False)
             ]
+        if pd.notna(custom_symbol) and 'Investment name' in merged.columns:
+            sale_tx = sale_tx[sale_tx['Investment name'] == custom_symbol]
         if not check_custom_sale_record_exists(sale_tx, sale_date):
             continue
         check_custom_sale_match_unambiguous(sale_date, len(sale_tx))
         sale = sale_tx.iloc[0]
+        sale_investment = sale.get('Investment name') if 'Investment name' in sale.index else None
         price_per = sale['amount_pln'] / abs(sale['shares']) if sale['shares'] else 0
         proceeds   = round(qty * price_per, 2)
 
@@ -331,6 +351,8 @@ def process_custom(merged: pd.DataFrame, custom_summary_path: Union[str, List[st
                 (merged['trade_date_norm'] == acq_date) &
                 merged['Transaction type'].str.contains('YOU BOUGHT', na=False)
             ]
+            if pd.notna(sale_investment) and 'Investment name' in merged.columns:
+                buy_tx = buy_tx[buy_tx['Investment name'] == sale_investment]
             if source == 'SP':
                 buy_tx = buy_tx[buy_tx['Transaction type'].str.contains('ESPP', na=False)]
             if buy_tx.empty:
@@ -338,6 +360,8 @@ def process_custom(merged: pd.DataFrame, custom_summary_path: Union[str, List[st
                     (merged['settlement_norm'] == acq_date) &
                     merged['Transaction type'].str.contains('YOU BOUGHT', na=False)
                 ]
+                if pd.notna(sale_investment) and 'Investment name' in merged.columns:
+                    buy_tx = buy_tx[buy_tx['Investment name'] == sale_investment]
                 if source == 'SP':
                     buy_tx = buy_tx[buy_tx['Transaction type'].str.contains('ESPP', na=False)]
             if not check_custom_buy_record_exists(buy_tx, acq_date, source):
@@ -359,14 +383,14 @@ def process_custom(merged: pd.DataFrame, custom_summary_path: Union[str, List[st
 def compute_dividends_and_tax(merged: pd.DataFrame, year: Optional[int] = None) -> Tuple[float, float]:
     """Compute total dividend income and US withholding tax in PLN.
 
-    Dividend income sums:
+    Dividend income sums only gross dividend rows:
       - 'DIVIDEND RECEIVED' rows (gross cash dividends)
-      - 'REINVESTMENT' rows (dividends reinvested into shares; typically
-        negative amounts representing the reinvestment outflow)
+    Reinvestment rows represent purchase of fund units and do not reduce
+    taxable dividend income.
 
-    Foreign withholding tax: all rows containing 'NON-RESIDENT TAX' in the
-    transaction type. Amounts are negative in the source data and negated here
-    to report as a positive value.
+    Foreign withholding tax on dividends: rows containing both
+    'NON-RESIDENT TAX' and 'DIVIDEND'. Amounts are negative in source data
+    and negated here to report as a positive value.
 
     Dividends are taxed separately under art. 30a (Section G of PIT-38).
     The foreign withholding tax on dividends feeds into Poz. 46 of Section G.
@@ -383,13 +407,30 @@ def compute_dividends_and_tax(merged: pd.DataFrame, year: Optional[int] = None) 
     if year is not None:
         df = merged[merged['settlement_date'].dt.year == year]
     gross_div = df[df['Transaction type'] == 'DIVIDEND RECEIVED']['amount_pln'].sum()
-    reinv_div = df[df['Transaction type'].str.contains('REINVESTMENT', na=False)]['amount_pln'].sum()
-    total_dividends = gross_div + reinv_div
-    # All NON-RESIDENT TAX rows (no double-counting)
-    foreign_tax = -df[df['Transaction type'].str.contains('NON-RESIDENT TAX', na=False)]['amount_pln'].sum()
+    total_dividends = round(gross_div, 2) + 0.0
+    foreign_tax_mask = (
+        df['Transaction type'].str.contains('NON-RESIDENT TAX', na=False) &
+        df['Transaction type'].str.contains('DIVIDEND', na=False)
+    )
+    foreign_tax = -df[foreign_tax_mask]['amount_pln'].sum()
     foreign_tax = round(foreign_tax, 2) + 0.0  # +0.0 avoids -0.00 display
     logging.info(f"Dividends PLN: {total_dividends:.2f}; Foreign tax on dividends PLN: {foreign_tax:.2f}")
     return total_dividends, foreign_tax
+
+
+def compute_foreign_tax_capital_gains(merged: pd.DataFrame, year: Optional[int] = None) -> float:
+    """Compute foreign tax attributable to capital gains (art. 30b) in PLN.
+
+    Matches rows marked as foreign tax that are not dividend-related.
+    """
+    df = merged
+    if year is not None:
+        df = merged[merged['settlement_date'].dt.year == year]
+    foreign_tax_mask = df['Transaction type'].str.contains('NON-RESIDENT TAX', na=False)
+    dividend_context_mask = df['Transaction type'].str.contains('DIVIDEND|REINVESTMENT', na=False)
+    capital_tax = -df[foreign_tax_mask & ~dividend_context_mask]['amount_pln'].sum()
+    capital_tax = round(max(capital_tax, 0.0), 2) + 0.0
+    return capital_tax
 
 
 def load_transactions(tx_csv: Union[str, List[str]]) -> pd.DataFrame:
@@ -444,12 +485,18 @@ def _round_tax(value: float) -> int:
     return int(math.floor(value + 0.5))
 
 
+def _round_up_to_grosz(value: float) -> float:
+    """Round up to full grosz (0.01 PLN) per Ordynacja art. 63 §1a."""
+    return float(Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_CEILING))
+
+
 def calculate_pit38_fields(
     total_proceeds: float,
     total_costs: float,
     total_gain: float,
     total_dividends: float,
     foreign_tax_dividends: float,
+    foreign_tax_capital_gains: float = 0.0,
 ) -> Dict[str, float]:
     """Compute PIT-38 and PIT-ZG field values from aggregated totals.
 
@@ -460,8 +507,7 @@ def calculate_pit38_fields(
       Poz. 29 = tax base, rounded per Ordynacja art. 63 §1
       Poz. 30 = 19% rate
       Poz. 31 = Poz. 29 × 19%
-      Poz. 32 = foreign tax paid on capital gains (0 for Fidelity US stocks;
-                US doesn't withhold on stock sale proceeds)
+      Poz. 32 = foreign tax paid on capital gains (credit, capped at Poz. 31)
       Poz. 33 = max(Poz. 31 - Poz. 32, 0), rounded per art. 63
 
     Section G (art. 30a) — dividends:
@@ -471,7 +517,7 @@ def calculate_pit38_fields(
 
     PIT-ZG attachment — foreign income:
       pitzg_poz29 = capital gains from foreign sources
-      pitzg_poz30 = foreign tax on capital gains (0 for US stocks)
+      pitzg_poz30 = foreign tax on capital gains
 
     Args:
         total_proceeds: Total sale proceeds in PLN.
@@ -479,6 +525,8 @@ def calculate_pit38_fields(
         total_gain: Net gain from stock sales in PLN (proceeds - costs).
         total_dividends: Total gross dividend income in PLN.
         foreign_tax_dividends: Foreign withholding tax on dividends in PLN.
+        foreign_tax_capital_gains: Foreign tax paid on capital gains in PLN
+                (credit in Poz. 32, capped at Polish tax from Poz. 31).
 
     Returns:
         Dict with PIT-38 Section C/D, Section G, and PIT-ZG fields.
@@ -490,14 +538,11 @@ def calculate_pit38_fields(
     poz29 = _round_tax(poz26)           # tax base
     poz30_rate = 0.19
     poz31 = round(poz29 * poz30_rate, 2)
-    # US does not withhold tax on stock sale proceeds; foreign tax on
-    # capital gains is 0 for Fidelity accounts.
-    poz32 = 0.0
+    poz32 = round(min(max(foreign_tax_capital_gains, 0.0), poz31), 2)
     tax_final = _round_tax(max(poz31 - poz32, 0))  # Poz. 33
 
     # --- Section G: dividends (art. 30a) ---
-    import math
-    poz45 = math.ceil(round(total_dividends * poz30_rate, 2) * 100) / 100  # 19% rounded up to grosze
+    poz45 = _round_up_to_grosz(total_dividends * poz30_rate)
     poz45 = round(poz45, 2) + 0.0
     poz46 = round(min(foreign_tax_dividends, poz45), 2)  # credit capped at Polish tax
     poz47 = _round_tax(max(poz45 - poz46, 0))
@@ -567,10 +612,16 @@ def calculate_pit38(
             raise ValueError("custom_summary is required when method='custom'")
         total_proceeds, total_costs, total_gain = process_custom(merged, custom_summary, year=year)
 
-    total_dividends, foreign_tax = compute_dividends_and_tax(merged, year=year)
+    total_dividends, foreign_tax_dividends = compute_dividends_and_tax(merged, year=year)
+    foreign_tax_capital_gains = compute_foreign_tax_capital_gains(merged, year=year)
 
     result = calculate_pit38_fields(
-        total_proceeds, total_costs, total_gain, total_dividends, foreign_tax,
+        total_proceeds,
+        total_costs,
+        total_gain,
+        total_dividends,
+        foreign_tax_dividends,
+        foreign_tax_capital_gains=foreign_tax_capital_gains,
     )
     result['year'] = year
     return result

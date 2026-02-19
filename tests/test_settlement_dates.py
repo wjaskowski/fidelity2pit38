@@ -39,6 +39,12 @@ def test_sell_before_us_holiday_july4():
     assert result == pd.Timestamp("2024-07-05")
 
 
+def test_sell_before_good_friday_after_switch():
+    """2025-04-17 (Thu) + T+1 = 2025-04-21 (Mon, skipping Good Friday)."""
+    result = _calc("2025-04-17", "YOU SOLD")
+    assert result == pd.Timestamp("2025-04-21")
+
+
 # --- T+2 before switch date ---
 
 def test_you_sold_before_switch():

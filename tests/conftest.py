@@ -28,12 +28,12 @@ def example_data_dir():
 
 @pytest.fixture
 def example_tx_csv_path():
-    return str(DATA_DIR / "Transaction history.csv")
+    return str(DATA_DIR / "Transaction history 2024.csv")
 
 
 @pytest.fixture
 def example_custom_summary_path():
-    return str(DATA_DIR / "stock-sales.txt")
+    return str(DATA_DIR / "stock-sales-2024.txt")
 
 
 @pytest.fixture
@@ -42,6 +42,10 @@ def nbp_rates_df():
         {
             "date": pd.to_datetime(
                 [
+                    "2024-03-18",
+                    "2024-03-28",
+                    "2024-06-13",
+                    "2024-06-14",
                     "2024-09-10",
                     "2024-09-11",
                     "2024-09-12",
@@ -58,6 +62,10 @@ def nbp_rates_df():
                 ]
             ),
             "rate": [
+                3.9400,
+                3.9600,
+                3.9800,
+                3.9900,
                 3.8700,
                 3.8816,
                 3.8900,
@@ -130,15 +138,21 @@ def nbp_rates_multi_year_df():
 
 
 @pytest.fixture
-def mock_nbp_read_csv(nbp_fixture_csv_path, nbp_fixture_csv_path_2023):
-    """Patches urllib.request.urlopen: serves fixture files instead of fetching from NBP."""
-    from io import BytesIO
+def mock_nbp_read_csv(nbp_rates_df, nbp_rates_multi_year_df):
+    """Patch urllib.request.urlopen with deterministic synthetic NBP archive CSVs."""
     from unittest.mock import MagicMock
 
+    def _to_archive_csv(df):
+        lines = ["data;1USD"]
+        for row in df.sort_values("date").itertuples(index=False):
+            lines.append(f"{row.date.strftime('%Y%m%d')};{str(f'{row.rate:.4f}').replace('.', ',')}")
+        return ("\n".join(lines) + "\n").encode("cp1250")
+
     def _mock_urlopen(url, **kwargs):
-        fixture = nbp_fixture_csv_path_2023 if "2023" in url else nbp_fixture_csv_path
-        with open(fixture, "rb") as f:
-            data = f.read()
+        if "2023" in url:
+            data = _to_archive_csv(nbp_rates_multi_year_df[nbp_rates_multi_year_df["date"].dt.year == 2023])
+        else:
+            data = _to_archive_csv(nbp_rates_df)
         resp = MagicMock()
         resp.read.return_value = data
         resp.__enter__ = lambda s: s

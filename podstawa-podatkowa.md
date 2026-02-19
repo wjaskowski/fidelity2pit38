@@ -76,6 +76,10 @@ Poniżej znajdują się **dosłowne krótkie cytaty** istotne dla obliczeń uży
 
 Źródło: [Ustawa PIT, art. 30a ust. 9 (tekst jednolity)](https://eli.gov.pl/api/acts/DU/2025/163/text/I/D20250163.pdf)
 
+> „Zryczałtowany podatek, o którym mowa w ust. 1 pkt 1-5, pobiera się bez pomniejszania przychodu o koszty uzyskania.”
+
+Źródło: [Ustawa PIT, art. 30a ust. 6 (tekst jednolity)](https://eli.gov.pl/api/acts/DU/2025/163/text/I/D20250163.pdf)
+
 ## 6) PIT/ZG przy dochodach zagranicznych
 
 > „Załącznik ten składają osoby, które w roku podatkowym uzyskały dochody za granicą”
@@ -116,6 +120,10 @@ Poniżej znajdują się **dosłowne krótkie cytaty** istotne dla obliczeń uży
 
 Źródło: [Ustawa PIT, art. 30a ust. 4 (tekst jednolity)](https://eli.gov.pl/api/acts/DU/2025/163/text/I/D20250163.pdf)
 
+Uwaga praktyczna dla projektu:
+- Dla rozliczenia sprzedaży akcji w PIT-38 stosujemy FIFO jako metodę techniczną przypisania kosztu do sprzedanych lotów.
+- W projekcie FIFO jest liczone per instrument (`Investment name`), aby nie mieszać kosztów między różnymi papierami.
+
 ## 10) Dzień przewalutowania, T+1/T+2 i kalendarz dni roboczych (PL vs US)
 
 ### 10.1 Cykl rozrachunku transakcji (rynek USA)
@@ -138,6 +146,10 @@ Poniżej znajdują się **dosłowne krótkie cytaty** istotne dla obliczeń uży
 
 Źródło: [FINRA – Margin Extension Holiday Schedule](https://www.finra.org/rules-guidance/key-topics/margin-accounts/margin-extension-holiday-schedule)
 
+> „Good Friday”
+
+Źródło: [FINRA – Margin Extension Holiday Schedule](https://www.finra.org/rules-guidance/key-topics/margin-accounts/margin-extension-holiday-schedule)
+
 ### 10.3 Dzień roboczy po stronie kursu walut (PL, NBP)
 
 > „Tabela A kursów średnich walut obcych aktualizowana jest w każdy dzień roboczy”
@@ -152,3 +164,14 @@ Poniżej znajdują się **dosłowne krótkie cytaty** istotne dla obliczeń uży
 
 - Rozrachunek transakcji giełdowych (T+2 do 2024-05-27 i T+1 od 2024-05-28) należy liczyć wg **dni roboczych rynku USA**.
 - Przeliczenie USD->PLN wg art. 11a PIT należy liczyć wg **ostatniego dnia roboczego poprzedzającego** (w praktyce: kalendarz publikacji kursów NBP, czyli **dzień roboczy PL**).
+
+## 11) Koszt nabycia akcji przy odpłatnym zbyciu (art. 23)
+
+> „wydatki takie są jednak kosztem uzyskania przychodu z odpłatnego zbycia tych udziałów (akcji)”
+
+Źródło: [Ustawa PIT, art. 23 ust. 1 pkt 38 (tekst jednolity)](https://eli.gov.pl/api/acts/DU/2025/163/text/I/D20250163.pdf)
+
+## 12) Zakres implementacji i ograniczenia danych
+
+- Kod rozdziela podatek zagraniczny na część dywidendową (art. 30a) i kapitałową (art. 30b), ale tylko jeśli rekordy wejściowe pozwalają je jednoznacznie rozróżnić po `Transaction type`.
+- Kod liczy PIT/ZG jako agregat dla całego wejścia. Wymóg formalny „odrębnie dla każdego państwa” pozostaje po stronie przygotowania danych i ewentualnego podziału wyników.

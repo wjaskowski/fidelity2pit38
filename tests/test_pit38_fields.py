@@ -96,6 +96,33 @@ class TestCapitalGainsSection:
         assert result["poz32"] == 0.0
         assert result["tax_final"] == _round_tax(1000 * 0.19)
 
+    def test_foreign_tax_credit_for_capital_gains_applied(self):
+        result = calculate_pit38_fields(
+            total_proceeds=10000.0,
+            total_costs=0.0,
+            total_gain=10000.0,
+            total_dividends=0.0,
+            foreign_tax_dividends=0.0,
+            foreign_tax_capital_gains=500.0,
+        )
+        assert result["poz31"] == pytest.approx(1900.0, abs=0.01)
+        assert result["poz32"] == pytest.approx(500.0, abs=0.01)
+        assert result["tax_final"] == 1400
+
+    def test_foreign_tax_credit_for_capital_gains_capped(self):
+        result = calculate_pit38_fields(
+            total_proceeds=1000.0,
+            total_costs=0.0,
+            total_gain=1000.0,
+            total_dividends=0.0,
+            foreign_tax_dividends=0.0,
+            foreign_tax_capital_gains=500.0,
+        )
+        # Poz.31 = 190, so Poz.32 cannot exceed 190
+        assert result["poz31"] == pytest.approx(190.0, abs=0.01)
+        assert result["poz32"] == pytest.approx(190.0, abs=0.01)
+        assert result["tax_final"] == 0
+
     def test_rounding_tax_base_49_groszy(self):
         """poz29 rounds down when < 50 groszy."""
         result = calculate_pit38_fields(

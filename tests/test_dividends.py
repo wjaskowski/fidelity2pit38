@@ -6,9 +6,8 @@ from fidelity2pit38 import compute_dividends_and_tax
 
 def test_example_data(merged_example):
     dividends, foreign_tax = compute_dividends_and_tax(merged_example)
-    assert dividends == pytest.approx(-25.4362, abs=0.01)
-    # One NON-RESIDENT TAX row in fixture data; no double-counting.
-    assert foreign_tax == pytest.approx(7.33, abs=0.01)
+    assert dividends == pytest.approx(52.47, abs=0.01)
+    assert foreign_tax == pytest.approx(7.86, abs=0.01)
 
 
 def test_gross_dividend_only():
@@ -23,7 +22,7 @@ def test_gross_dividend_only():
     assert foreign_tax == pytest.approx(0.0)
 
 
-def test_reinvestment_included():
+def test_reinvestment_excluded_from_taxable_dividends():
     merged = pd.DataFrame(
         {
             "Transaction type": ["DIVIDEND RECEIVED", "REINVESTMENT REINVEST @ $1.000"],
@@ -31,7 +30,7 @@ def test_reinvestment_included():
         }
     )
     dividends, foreign_tax = compute_dividends_and_tax(merged)
-    assert dividends == pytest.approx(20.0)
+    assert dividends == pytest.approx(50.0)
 
 
 def test_no_dividends():
