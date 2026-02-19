@@ -466,8 +466,39 @@ def load_transactions(tx_csv: Union[str, List[str]]) -> pd.DataFrame:
         DataFrame with added columns: 'trade_date', 'shares', 'amount_usd'.
     """
     paths = [tx_csv] if isinstance(tx_csv, str) else tx_csv
-    frames = [pd.read_csv(p) for p in paths]
-    tx_raw = pd.concat(frames, ignore_index=True).drop_duplicates()
+    frames = []
+    for p in paths:
+        frame = pd.read_csv(p)
+        frame['_source_file'] = str(p)
+        frames.append(frame)
+    tx_raw = pd.concat(frames, ignore_index=True)
+    # Remove only overlap duplicates across multiple files, while preserving
+    # real multiplicity from a single source file.
+    if len(paths) > 1:
+        value_cols = [c for c in tx_raw.columns if c != '_source_file']
+        per_file_counts = (
+            tx_raw.groupby(value_cols + ['_source_file'], dropna=False)
+            .size()
+            .rename('cnt')
+            .reset_index()
+        )
+        keep_counts = (
+            per_file_counts.groupby(value_cols, dropna=False)['cnt']
+            .max()
+            .rename('keep_n')
+            .reset_index()
+        )
+        tx_raw = tx_raw.merge(keep_counts, on=value_cols, how='left')
+        tx_raw['_row_rank'] = tx_raw.groupby(value_cols, dropna=False).cumcount() + 1
+        before = len(tx_raw)
+        tx_raw = tx_raw[tx_raw['_row_rank'] <= tx_raw['keep_n']].copy()
+        dropped_overlap = before - len(tx_raw)
+        if dropped_overlap:
+            logging.info(
+                f"Removed {dropped_overlap} overlap duplicate row(s) while merging multiple CSV files."
+            )
+        tx_raw = tx_raw.drop(columns=['keep_n', '_row_rank'])
+    tx_raw = tx_raw.drop(columns=['_source_file'])
     tx = tx_raw.copy()
     # Fidelity CSV exports may include footer text rows that are not transactions.
     footer_mask = (
