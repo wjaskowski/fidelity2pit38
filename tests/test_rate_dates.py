@@ -38,6 +38,11 @@ def test_settlement_sep_12():
     assert _calc("2024-09-12") == pd.Timestamp("2024-09-11")
 
 
+def test_polish_holiday_may_1_skipped():
+    """2024-05-02 (Thu) - 1 PL BD skips Labor Day (May 1) -> 2024-04-30."""
+    assert _calc("2024-05-02") == pd.Timestamp("2024-04-30")
+
+
 def test_vectorized():
     dates = pd.Series(
         [pd.Timestamp("2024-12-19"), pd.Timestamp("2024-12-31")]

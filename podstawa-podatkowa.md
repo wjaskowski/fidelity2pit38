@@ -180,6 +180,7 @@ Uwaga praktyczna dla projektu:
 
 - Rozrachunek transakcji giełdowych (T+2 do 2024-05-27 i T+1 od 2024-05-28) należy liczyć wg **dni roboczych rynku USA**.
 - Przeliczenie USD->PLN wg art. 11a PIT należy liczyć wg **ostatniego dnia roboczego poprzedzającego** (w praktyce: kalendarz publikacji kursów NBP, czyli **dzień roboczy PL**).
+- W implementacji projektowej „dzień uzyskania przychodu” dla transakcji rynkowych jest mapowany na `settlement_date`; to świadoma interpretacja techniczna, nie indywidualna interpretacja podatkowa.
 
 ## 11) Koszt nabycia akcji przy odpłatnym zbyciu (art. 23)
 
@@ -195,3 +196,8 @@ Uwaga praktyczna dla projektu:
   - wypłaty „equity-like” (np. akcje),
   - wypłaty „fund-like” (np. money market funds / cash sweep).
   To rozróżnienie służy transparentności raportu; oba typy pozostają w podstawie Części G (art. 30a).
+- W trybie `custom` koszt lotu jest brany najpierw z kolumny `Cost basis` (USD) i przeliczany na PLN po kursie z dopasowanego nabycia (`Date acquired`), co ogranicza potrzebę twardych założeń dla RSU/ESPP.
+- Gdy `Cost basis` jest puste lub niepoprawne, kod stosuje fallback techniczny:
+  - `RS` -> koszt `0.0`,
+  - `SP` -> koszt z pasującego zakupu ESPP.
+  Ten fallback ma charakter pomocniczy i wymaga weryfikacji przez doradcę podatkowego dla konkretnej sytuacji podatnika.

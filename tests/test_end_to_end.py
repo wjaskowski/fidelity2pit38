@@ -6,10 +6,12 @@ import pytest
 
 import fidelity2pit38
 from fidelity2pit38 import (
+    calculate_pit38,
     calculate_pit38_fields,
     calculate_rate_dates,
     calculate_settlement_dates,
     compute_dividends_and_tax,
+    compute_foreign_tax_capital_gains,
     main,
     merge_with_rates,
     process_custom,
@@ -32,15 +34,20 @@ def _run_pipeline_fifo(tx_csv_path, nbp_rates_df, year=2024):
     tx["settlement_date"] = calculate_settlement_dates(
         tx["trade_date"], tx["Transaction type"]
     )
-    tx = tx[tx["settlement_date"].dt.year == year]
     tx["rate_date"] = calculate_rate_dates(tx["settlement_date"])
     merged = merge_with_rates(tx, nbp_rates_df)
 
-    total_proceeds, total_costs, total_gain = process_fifo(merged)
-    total_dividends, foreign_tax = compute_dividends_and_tax(merged)
+    total_proceeds, total_costs, total_gain = process_fifo(merged, year=year)
+    total_dividends, foreign_tax = compute_dividends_and_tax(merged, year=year)
+    foreign_tax_capital_gains = compute_foreign_tax_capital_gains(merged, year=year)
 
     return calculate_pit38_fields(
-        total_proceeds, total_costs, total_gain, total_dividends, foreign_tax,
+        total_proceeds,
+        total_costs,
+        total_gain,
+        total_dividends,
+        foreign_tax,
+        foreign_tax_capital_gains=foreign_tax_capital_gains,
     )
 
 
@@ -82,17 +89,22 @@ class TestE2ECustom:
         tx["settlement_date"] = calculate_settlement_dates(
             tx["trade_date"], tx["Transaction type"]
         )
-        tx = tx[tx["settlement_date"].dt.year == 2024]
         tx["rate_date"] = calculate_rate_dates(tx["settlement_date"])
         merged = merge_with_rates(tx, nbp_rates_df)
 
         total_proceeds, total_costs, total_gain = process_custom(
-            merged, example_custom_summary_path
+            merged, example_custom_summary_path, year=2024
         )
-        total_dividends, foreign_tax = compute_dividends_and_tax(merged)
+        total_dividends, foreign_tax = compute_dividends_and_tax(merged, year=2024)
+        foreign_tax_capital_gains = compute_foreign_tax_capital_gains(merged, year=2024)
 
         result = calculate_pit38_fields(
-            total_proceeds, total_costs, total_gain, total_dividends, foreign_tax,
+            total_proceeds,
+            total_costs,
+            total_gain,
+            total_dividends,
+            foreign_tax,
+            foreign_tax_capital_gains=foreign_tax_capital_gains,
         )
 
         # Section C/D: capital gains (custom method from stock-sales file)
@@ -183,6 +195,27 @@ class TestMainCLI:
         )
         with mock_nbp_read_csv, pytest.raises(SystemExit):
             main()
+
+
+class TestPipelineWarnings:
+    def test_warns_when_settlement_date_rows_are_dropped(
+        self, tmp_path, mock_nbp_read_csv, caplog
+    ):
+        csv_path = tmp_path / "Transaction history bad-date.csv"
+        csv_path.write_text(
+            "\n".join(
+                [
+                    "Transaction date,Transaction type,Investment name,Shares,Amount",
+                    "not-a-date,DIVIDEND RECEIVED,FIDELITY GOVERNMENT CASH RESERVES,-,$1.00",
+                    "Jan-02-2024,DIVIDEND RECEIVED,FIDELITY GOVERNMENT CASH RESERVES,-,$10.00",
+                ]
+            )
+            + "\n"
+        )
+        caplog.set_level("WARNING")
+        with mock_nbp_read_csv:
+            calculate_pit38(tx_csv=str(csv_path), year=2024, method="fifo")
+        assert "Dropping 1 transaction row(s) with missing settlement_date" in caplog.text
 
 
 class TestE2EYearFiltering:
