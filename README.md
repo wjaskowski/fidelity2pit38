@@ -11,7 +11,7 @@ Creates PIT-38 from your Fidelity history.
 
 ## Usage
 
-1. Go to your Fidelity -> Stock Plan Accounts -> Activity -> Custom Date -> Jan-01-2025-Dec-31-2025 -> Export -> `Transaction history 2025.csv`
+1. Go to your Fidelity. For each year, download `Transaction history 20XX`.csv for this year (-> Stock Plan Accounts -> Activity -> Custom Date -> Jan-01-2025-Dec-31-20XX -> Export -> `Transaction history 20XX.csv`)
  
 2. Place your `Transaction history*.csv` files in the `data/` directory and run:
 ```sh
