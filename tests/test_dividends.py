@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from fidelity2pit38 import compute_dividends_and_tax
+from fidelity2pit38 import compute_dividends_and_tax, compute_section_g_income_components
 
 
 def test_example_data(merged_example):
@@ -84,3 +84,25 @@ def test_dividends_not_in_foreign_tax():
     dividends, foreign_tax = compute_dividends_and_tax(merged)
     assert dividends == pytest.approx(100.0)
     assert foreign_tax == pytest.approx(0.0)
+
+
+def test_section_g_breakdown_fund_vs_equity():
+    merged = pd.DataFrame(
+        {
+            "Transaction type": ["DIVIDEND RECEIVED", "DIVIDEND RECEIVED"],
+            "Investment name": ["ACME TECHNOLOGY INC. COMMON STOCK", "FID TREASURY ONLY MMKT FUND CL OUS"],
+            "amount_pln": [12.0, 34.0],
+            "settlement_date": [pd.Timestamp("2024-01-01"), pd.Timestamp("2024-01-01")],
+        }
+    )
+    comp = compute_section_g_income_components(merged)
+    assert comp["section_g_equity_dividends"] == pytest.approx(12.0)
+    assert comp["section_g_fund_distributions"] == pytest.approx(34.0)
+    assert comp["section_g_total_income"] == pytest.approx(46.0)
+
+
+def test_section_g_breakdown_in_example_is_fund_only(merged_example):
+    comp = compute_section_g_income_components(merged_example)
+    assert comp["section_g_total_income"] == pytest.approx(52.47, abs=0.01)
+    assert comp["section_g_equity_dividends"] == pytest.approx(0.0)
+    assert comp["section_g_fund_distributions"] == pytest.approx(52.47, abs=0.01)

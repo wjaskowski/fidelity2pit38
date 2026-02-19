@@ -380,20 +380,59 @@ def process_custom(merged: pd.DataFrame, custom_summary_path: Union[str, List[st
     return total_proceeds, total_costs, total_gain
 
 
+def _is_fund_like_investment(investment_name: object) -> bool:
+    """Heuristic classifier for fund/cash-sweep positions vs equity names."""
+    if investment_name is None or pd.isna(investment_name):
+        return False
+    name = str(investment_name).upper()
+    fund_markers = ("FUND", "MMKT", "MONEY MARKET", "CASH RESERVES")
+    return any(marker in name for marker in fund_markers)
+
+
+def compute_section_g_income_components(merged: pd.DataFrame, year: Optional[int] = None) -> Dict[str, float]:
+    """Compute Section G (art. 30a ust.1 pkt 1-5) income components in PLN.
+
+    For Fidelity exports used by this project, Section G income is sourced from
+    'DIVIDEND RECEIVED' rows. These are split into:
+      - equity-like dividends
+      - fund/cash-sweep distributions (e.g. money market funds)
+
+    Reinvestment rows are not income tax base rows.
+    """
+    df = merged
+    if year is not None:
+        df = merged[merged['settlement_date'].dt.year == year]
+
+    div_rows = df[df['Transaction type'] == 'DIVIDEND RECEIVED'].copy()
+    if 'Investment name' in div_rows.columns:
+        fund_mask = div_rows['Investment name'].apply(_is_fund_like_investment)
+    else:
+        fund_mask = pd.Series(False, index=div_rows.index)
+
+    fund_distributions = round(div_rows.loc[fund_mask, 'amount_pln'].sum(), 2) + 0.0
+    equity_dividends = round(div_rows.loc[~fund_mask, 'amount_pln'].sum(), 2) + 0.0
+    total_income = round(equity_dividends + fund_distributions, 2) + 0.0
+
+    foreign_tax_mask = (
+        df['Transaction type'].str.contains('NON-RESIDENT TAX', na=False) &
+        df['Transaction type'].str.contains('DIVIDEND', na=False)
+    )
+    foreign_tax = -df[foreign_tax_mask]['amount_pln'].sum()
+    foreign_tax = round(foreign_tax, 2) + 0.0  # +0.0 avoids -0.00 display
+
+    return {
+        'section_g_total_income': total_income,
+        'section_g_equity_dividends': equity_dividends,
+        'section_g_fund_distributions': fund_distributions,
+        'section_g_foreign_tax': foreign_tax,
+    }
+
+
 def compute_dividends_and_tax(merged: pd.DataFrame, year: Optional[int] = None) -> Tuple[float, float]:
-    """Compute total dividend income and US withholding tax in PLN.
+    """Compute Section G income (legacy name) and withholding tax in PLN.
 
-    Dividend income sums only gross dividend rows:
-      - 'DIVIDEND RECEIVED' rows (gross cash dividends)
-    Reinvestment rows represent purchase of fund units and do not reduce
-    taxable dividend income.
-
-    Foreign withholding tax on dividends: rows containing both
-    'NON-RESIDENT TAX' and 'DIVIDEND'. Amounts are negative in source data
-    and negated here to report as a positive value.
-
-    Dividends are taxed separately under art. 30a (Section G of PIT-38).
-    The foreign withholding tax on dividends feeds into Poz. 46 of Section G.
+    Backward-compatible wrapper over `compute_section_g_income_components`.
+    The first value contains Section G gross income base used for Poz. 45.
 
     Args:
         merged: Transaction DataFrame with 'Transaction type', 'amount_pln',
@@ -401,21 +440,18 @@ def compute_dividends_and_tax(merged: pd.DataFrame, year: Optional[int] = None) 
         year: If set, only rows settling in this year are included.
 
     Returns:
-        Tuple of (total_dividends_pln, foreign_tax_on_dividends_pln).
+        Tuple of (section_g_income_pln, foreign_tax_section_g_pln).
     """
-    df = merged
-    if year is not None:
-        df = merged[merged['settlement_date'].dt.year == year]
-    gross_div = df[df['Transaction type'] == 'DIVIDEND RECEIVED']['amount_pln'].sum()
-    total_dividends = round(gross_div, 2) + 0.0
-    foreign_tax_mask = (
-        df['Transaction type'].str.contains('NON-RESIDENT TAX', na=False) &
-        df['Transaction type'].str.contains('DIVIDEND', na=False)
+    components = compute_section_g_income_components(merged, year=year)
+    logging.info(
+        "Section G income PLN: %.2f (equity dividends: %.2f; fund distributions: %.2f); "
+        "Foreign tax PLN: %.2f",
+        components['section_g_total_income'],
+        components['section_g_equity_dividends'],
+        components['section_g_fund_distributions'],
+        components['section_g_foreign_tax'],
     )
-    foreign_tax = -df[foreign_tax_mask]['amount_pln'].sum()
-    foreign_tax = round(foreign_tax, 2) + 0.0  # +0.0 avoids -0.00 display
-    logging.info(f"Dividends PLN: {total_dividends:.2f}; Foreign tax on dividends PLN: {foreign_tax:.2f}")
-    return total_dividends, foreign_tax
+    return components['section_g_total_income'], components['section_g_foreign_tax']
 
 
 def compute_foreign_tax_capital_gains(merged: pd.DataFrame, year: Optional[int] = None) -> float:
@@ -510,9 +546,9 @@ def calculate_pit38_fields(
       Poz. 32 = foreign tax paid on capital gains (credit, capped at Poz. 31)
       Poz. 33 = max(Poz. 31 - Poz. 32, 0), rounded per art. 63
 
-    Section G (art. 30a) — dividends:
-      Poz. 45 = 19% tax on gross dividends (rounded to grosze up, per art.63 §1a)
-      Poz. 46 = foreign withholding tax on dividends
+    Section G (art. 30a ust.1 pkt 1-5) — zryczałtowane przychody zagraniczne:
+      Poz. 45 = 19% tax on gross Section-G income (rounded to grosze up, per art.63 §1a)
+      Poz. 46 = foreign withholding tax attributable to Section G income
       Poz. 47 = max(Poz. 45 - Poz. 46, 0) (rounded per art. 63)
 
     PIT-ZG attachment — foreign income:
@@ -523,8 +559,9 @@ def calculate_pit38_fields(
         total_proceeds: Total sale proceeds in PLN.
         total_costs: Total cost basis in PLN.
         total_gain: Net gain from stock sales in PLN (proceeds - costs).
-        total_dividends: Total gross dividend income in PLN.
-        foreign_tax_dividends: Foreign withholding tax on dividends in PLN.
+        total_dividends: Total Section-G gross income in PLN (includes
+                dividend-like and fund-like distributions from input).
+        foreign_tax_dividends: Foreign withholding tax for Section G income in PLN.
         foreign_tax_capital_gains: Foreign tax paid on capital gains in PLN
                 (credit in Poz. 32, capped at Polish tax from Poz. 31).
 
@@ -541,7 +578,7 @@ def calculate_pit38_fields(
     poz32 = round(min(max(foreign_tax_capital_gains, 0.0), poz31), 2)
     tax_final = _round_tax(max(poz31 - poz32, 0))  # Poz. 33
 
-    # --- Section G: dividends (art. 30a) ---
+    # --- Section G: zryczałtowane przychody (art. 30a ust.1 pkt 1-5) ---
     poz45 = _round_up_to_grosz(total_dividends * poz30_rate)
     poz45 = round(poz45, 2) + 0.0
     poz46 = round(min(foreign_tax_dividends, poz45), 2)  # credit capped at Polish tax
@@ -612,7 +649,9 @@ def calculate_pit38(
             raise ValueError("custom_summary is required when method='custom'")
         total_proceeds, total_costs, total_gain = process_custom(merged, custom_summary, year=year)
 
-    total_dividends, foreign_tax_dividends = compute_dividends_and_tax(merged, year=year)
+    section_g = compute_section_g_income_components(merged, year=year)
+    total_dividends = section_g['section_g_total_income']
+    foreign_tax_dividends = section_g['section_g_foreign_tax']
     foreign_tax_capital_gains = compute_foreign_tax_capital_gains(merged, year=year)
 
     result = calculate_pit38_fields(
@@ -622,6 +661,13 @@ def calculate_pit38(
         total_dividends,
         foreign_tax_dividends,
         foreign_tax_capital_gains=foreign_tax_capital_gains,
+    )
+    result.update(
+        {
+            'section_g_total_income': section_g['section_g_total_income'],
+            'section_g_equity_dividends': section_g['section_g_equity_dividends'],
+            'section_g_fund_distributions': section_g['section_g_fund_distributions'],
+        }
     )
     result['year'] = year
     return result

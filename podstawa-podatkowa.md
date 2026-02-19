@@ -58,7 +58,7 @@ Poniżej znajdują się **dosłowne krótkie cytaty** istotne dla obliczeń uży
 
 Źródło: [Ustawa PIT, art. 30b ust. 5b (tekst jednolity)](https://eli.gov.pl/api/acts/DU/2025/163/text/I/D20250163.pdf)
 
-## 5) Dywidendy i podatek zryczałtowany (art. 30a)
+## 5) Część G PIT-38: podatek zryczałtowany (art. 30a ust. 1 pkt 1-5)
 
 > „Od uzyskanych dochodów (przychodów) pobiera się 19 % zryczałtowany podatek dochodowy”
 
@@ -79,6 +79,22 @@ Poniżej znajdują się **dosłowne krótkie cytaty** istotne dla obliczeń uży
 > „Zryczałtowany podatek, o którym mowa w ust. 1 pkt 1-5, pobiera się bez pomniejszania przychodu o koszty uzyskania.”
 
 Źródło: [Ustawa PIT, art. 30a ust. 6 (tekst jednolity)](https://eli.gov.pl/api/acts/DU/2025/163/text/I/D20250163.pdf)
+
+> „W części G wykazujesz podatek zryczałtowany, o którym mowa m.in. w art. 30a ust. 1 pkt 1-5 ustawy.”
+
+Źródło: [PIT-38 za 2025 rok (podatki.gov.pl)](https://www.podatki.gov.pl/twoj-e-pit/pit-38-za-2025-rok/)
+
+> „odsetki i inne przychody od środków pieniężnych zgromadzonych na rachunku podatnika …”
+
+Źródło: [Broszura PIT-38 za 2025 r.](https://www.podatki.gov.pl/media/g5ebnm2e/broszura-do-pit-38-za-2025-r.pdf)
+
+> „dywidendy i inne przychody z tytułu udziału w zyskach osób prawnych”
+
+Źródło: [Broszura PIT-38 za 2025 r.](https://www.podatki.gov.pl/media/g5ebnm2e/broszura-do-pit-38-za-2025-r.pdf)
+
+> „dochód z tytułu udziału w funduszach kapitałowych”
+
+Źródło: [Broszura PIT-38 za 2025 r.](https://www.podatki.gov.pl/media/g5ebnm2e/broszura-do-pit-38-za-2025-r.pdf)
 
 ## 6) PIT/ZG przy dochodach zagranicznych
 
@@ -175,3 +191,7 @@ Uwaga praktyczna dla projektu:
 
 - Kod rozdziela podatek zagraniczny na część dywidendową (art. 30a) i kapitałową (art. 30b), ale tylko jeśli rekordy wejściowe pozwalają je jednoznacznie rozróżnić po `Transaction type`.
 - Kod liczy PIT/ZG jako agregat dla całego wejścia. Wymóg formalny „odrębnie dla każdego państwa” pozostaje po stronie przygotowania danych i ewentualnego podziału wyników.
+- Dla wpisów `DIVIDEND RECEIVED` kod dodatkowo rozróżnia wewnętrznie:
+  - wypłaty „equity-like” (np. akcje),
+  - wypłaty „fund-like” (np. money market funds / cash sweep).
+  To rozróżnienie służy transparentności raportu; oba typy pozostają w podstawie Części G (art. 30a).

@@ -43,11 +43,15 @@ Dokument opisuje znaczenie pól oraz to, jak dane są **faktycznie interpretowan
 - `YOU BOUGHT ESPP### AS OF ...`
   - Nabycie ESPP; w `custom` przy `Stock source=SP` koszt jest liczony z pasującego zakupu ESPP.
 - `DIVIDEND RECEIVED`
-  - Dywidenda gotówkowa.
+  - Wypłata ujmowana w Części G (art. 30a); kod rozróżnia ją pomocniczo na:
+  - `equity-like` (np. akcje),
+  - `fund-like` (np. fundusze/MMF/cash sweep), na podstawie `Investment name`.
 - `REINVESTMENT ...`
-  - Reinvest dywidendy; kod dolicza te rekordy do agregatu dywidend.
+  - Reinvest (zakup jednostek za wypłatę); kod nie dolicza tych rekordów do podstawy podatku Części G.
 - `NON-RESIDENT TAX ...`
-  - Kod traktuje **wszystkie** rekordy zawierające `NON-RESIDENT TAX` jako podatek zagraniczny do agregacji.
+  - Kod rozdziela:
+  - wpisy z `...DIVIDEND...` -> podatek zagraniczny do Części G (poz. 46),
+  - wpisy bez kontekstu `DIVIDEND/REINVESTMENT` -> podatek zagraniczny do art. 30b (poz. 32).
 
 ## 1.3.2 Najczęściej pomocnicze (nie tworzą same z siebie zysku/straty z akcji)
 
