@@ -29,11 +29,6 @@ def main() -> None:
     transaction_history_csv_files, stock_sales_txt_files = discover_transaction_files(args.data_dir)
     if not transaction_history_csv_files:
         parser.error(f"No 'Transaction history*.csv' files found in {args.data_dir}")
-    tx_csv = (
-        transaction_history_csv_files
-        if len(transaction_history_csv_files) > 1
-        else transaction_history_csv_files[0]
-    )
 
     # Determine stock-sales TXT paths for custom mode.
     custom_mode_stock_sales_txt_files = []
@@ -43,7 +38,7 @@ def main() -> None:
         custom_mode_stock_sales_txt_files = stock_sales_txt_files
 
     result = calculate_pit38(
-        tx_csv=tx_csv,
+        tx_csv=transaction_history_csv_files,
         year=args.year,
         method=args.method,
         custom_summary=custom_mode_stock_sales_txt_files,

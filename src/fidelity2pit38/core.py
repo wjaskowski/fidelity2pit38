@@ -38,10 +38,22 @@ SWITCH_DATE = pd.Timestamp('2024-05-28')
 DecimalLike = Union[Decimal, float, int, str]
 TWO_PLACES = Decimal("0.01")
 
-
 class USSettlementHolidayCalendar(AbstractHolidayCalendar):
     """US settlement calendar: federal holidays plus Good Friday."""
     rules = list(USFederalHolidayCalendar.rules) + [GoodFriday]
+
+
+# US settlement calendar offsets — stateless, built once at import time
+_US_BD1 = CustomBusinessDay(calendar=USSettlementHolidayCalendar(), n=1)
+_US_BD2 = CustomBusinessDay(calendar=USSettlementHolidayCalendar(), n=2)
+
+# Transaction types that trigger market (T+1/T+2) settlement
+_MARKET_SETTLEMENT_TAGS = ('YOU BOUGHT', 'YOU SOLD', 'ESPP')
+
+
+def _as_list(value: Union[str, List[str]]) -> List[str]:
+    """Normalize a single path string or list of path strings to a list."""
+    return [value] if isinstance(value, str) else value
 
 
 def _strip_known_fidelity_footer_rows(tx_raw: pd.DataFrame) -> pd.DataFrame:
@@ -82,9 +94,9 @@ def discover_transaction_files(directory: str) -> Tuple[List[str], List[str]]:
         directory,
     )
     for p in transaction_history_csv_files:
-        logging.info(f"  CSV: {p}")
+        logging.info("  CSV: %s", p)
     for p in stock_sales_txt_files:
-        logging.info(f"  TXT: {p}")
+        logging.info("  TXT: %s", p)
     return transaction_history_csv_files, stock_sales_txt_files
 
 
@@ -107,7 +119,7 @@ def build_nbp_rate_urls(years: List[int]) -> List[str]:
         f"https://static.nbp.pl/dane/kursy/Archiwum/archiwum_tab_a_{y}.csv"
         for y in all_years
     ]
-    logging.info(f"NBP rate URLs for years {list(all_years)}: {len(urls)} files")
+    logging.info("NBP rate URLs for years %s: %d files", list(all_years), len(urls))
     return urls
 
 
@@ -138,7 +150,7 @@ def load_nbp_rates(urls: List[str]) -> pd.DataFrame:
         df = df.dropna(subset=['date', 'rate'])[['date', 'rate']]
         rates_list.append(df)
     rates = pd.concat(rates_list).drop_duplicates('date').sort_values('date').reset_index(drop=True)
-    logging.info(f"Loaded {len(rates)} exchange-rate entries.")
+    logging.info("Loaded %d exchange-rate entries.", len(rates))
     return rates
 
 
@@ -162,18 +174,14 @@ def calculate_settlement_dates(trade_dates: pd.Series, tx_types: pd.Series) -> p
     Returns:
         Series of settlement-date timestamps, aligned to the input index.
     """
-    us_bd1 = CustomBusinessDay(calendar=USSettlementHolidayCalendar(), n=1)
-    us_bd2 = CustomBusinessDay(calendar=USSettlementHolidayCalendar(), n=2)
-
     settlements: List[Optional[pd.Timestamp]] = []
     for d, ttype in zip(trade_dates, tx_types):
         if pd.isna(d):
             settlements.append(pd.NaT)
             continue
-        market_tags = ['YOU BOUGHT', 'YOU SOLD', 'ESPP']
-        if any(tag in ttype for tag in market_tags):
+        if any(tag in ttype for tag in _MARKET_SETTLEMENT_TAGS):
             # T+2 before SWITCH_DATE, T+1 after
-            settlements.append(d + (us_bd2 if d < SWITCH_DATE else us_bd1))
+            settlements.append(d + (_US_BD2 if d < SWITCH_DATE else _US_BD1))
         else:
             # corporate actions & cash events: immediate settlement
             settlements.append(d)
@@ -235,6 +243,14 @@ def merge_with_rates(tx: pd.DataFrame, nbp_rates: pd.DataFrame) -> pd.DataFrame:
     return merged
 
 
+def _open_buy_lots(buys: pd.DataFrame, sale_investment: Optional[str]) -> pd.DataFrame:
+    """Return buy lots with remaining shares > 0, filtered to the given investment name."""
+    open_lots = buys[buys['remaining'] > 0]
+    if 'Investment name' in open_lots.columns and pd.notna(sale_investment):
+        open_lots = open_lots[open_lots['Investment name'] == sale_investment]
+    return open_lots
+
+
 def process_fifo(merged: pd.DataFrame, year: Optional[int] = None) -> Tuple[float, float, float]:
     """Match stock sales to purchases using FIFO (First-In, First-Out) ordering.
 
@@ -266,19 +282,12 @@ def process_fifo(merged: pd.DataFrame, year: Optional[int] = None) -> Tuple[floa
     allocs = []
     for _, sale in sells.iterrows():
         sale_investment = sale.get('Investment name') if 'Investment name' in sale.index else None
-
-        def _open_lots_for_sale() -> pd.DataFrame:
-            open_lots = buys[buys['remaining'] > 0]
-            if 'Investment name' in open_lots.columns and pd.notna(sale_investment):
-                open_lots = open_lots[open_lots['Investment name'] == sale_investment]
-            return open_lots
-
         qty = abs(sale['shares'])
         price_per = sale['amount_pln'] / qty if qty else 0
-        available_qty = _open_lots_for_sale()['remaining'].sum()
+        available_qty = _open_buy_lots(buys, sale_investment)['remaining'].sum()
         check_fifo_sale_not_oversell(sale['settlement_date'], qty, available_qty)
         while qty > 0:
-            open_lots = _open_lots_for_sale()
+            open_lots = _open_buy_lots(buys, sale_investment)
             if not check_fifo_open_lots_available(sale['settlement_date'], qty, has_open_lots=not open_lots.empty):
                 break
             idx = open_lots.index.min()
@@ -294,8 +303,59 @@ def process_fifo(merged: pd.DataFrame, year: Optional[int] = None) -> Tuple[floa
     total_proceeds = sum(a['proceeds'] for a in allocs)
     total_costs    = sum(a['cost']     for a in allocs)
     total_gain     = round(total_proceeds - total_costs, 2)
-    logging.info(f"FIFO: matched {len(allocs)} lots; Gain PLN: {total_gain:.2f}")
+    logging.info("FIFO: matched %d lots; Gain PLN: %.2f", len(allocs), total_gain)
     return total_proceeds, total_costs, total_gain
+
+
+def _filter_by_identifier(
+    df: pd.DataFrame,
+    custom_symbol: Optional[str],
+    custom_investment_name: Optional[str],
+    label: str,
+    date_value: pd.Timestamp,
+) -> pd.DataFrame:
+    """Filter transaction rows to those matching the given symbol or investment name.
+
+    Tries, in order: exact Symbol match, exact Investment name match, token
+    match in Investment name. Returns an empty DataFrame if a symbol is given
+    but cannot be matched; returns the input DataFrame unchanged when no
+    identifier is available.
+    """
+    if df.empty:
+        return df
+
+    if custom_symbol:
+        symbol_upper = custom_symbol.upper()
+        if 'Symbol' in df.columns:
+            exact_mask = df['Symbol'].astype(str).str.strip().str.upper() == symbol_upper
+            if exact_mask.any():
+                return df[exact_mask]
+
+        if 'Investment name' in df.columns:
+            investment_col = df['Investment name'].astype(str).str.strip()
+            exact_name_mask = investment_col.str.upper() == symbol_upper
+            if exact_name_mask.any():
+                return df[exact_name_mask]
+            token_mask = investment_col.str.contains(
+                rf"\b{re.escape(custom_symbol)}\b", case=False, regex=True, na=False
+            )
+            if token_mask.any():
+                return df[token_mask]
+
+        logging.error(
+            "Custom summary inconsistency: Symbol '%s' could not be matched to %s rows on %s.",
+            custom_symbol,
+            label,
+            date_value.date(),
+        )
+        return df.iloc[0:0]
+
+    if custom_investment_name and 'Investment name' in df.columns:
+        name_mask = df['Investment name'].astype(str).str.strip().str.upper() == custom_investment_name.upper()
+        if name_mask.any():
+            return df[name_mask]
+
+    return df
 
 
 def process_custom(merged: pd.DataFrame, custom_summary_path: Union[str, List[str]], year: Optional[int] = None) -> Tuple[float, float, float]:
@@ -333,7 +393,7 @@ def process_custom(merged: pd.DataFrame, custom_summary_path: Union[str, List[st
     merged['trade_date_norm'] = merged['trade_date'].dt.normalize()
     merged['settlement_norm'] = merged['settlement_date'].dt.normalize()
 
-    paths = [custom_summary_path] if isinstance(custom_summary_path, str) else custom_summary_path
+    paths = _as_list(custom_summary_path)
     custom_frames = [pd.read_csv(p, sep='\t', engine='python') for p in paths]
     custom = pd.concat(custom_frames, ignore_index=True).drop_duplicates()
     custom['Date sold']     = pd.to_datetime(custom['Date sold or transferred'], format='%b-%d-%Y', errors='coerce')
@@ -389,44 +449,6 @@ def process_custom(merged: pd.DataFrame, custom_summary_path: Union[str, List[st
         if pd.isna(sale_date) or pd.isna(acq_date) or pd.isna(qty) or qty <= 0:
             continue
 
-        def _apply_custom_identifier_filter(df: pd.DataFrame, label: str, date_value: pd.Timestamp) -> pd.DataFrame:
-            if df.empty:
-                return df
-
-            if custom_symbol:
-                symbol_upper = custom_symbol.upper()
-                if 'Symbol' in df.columns:
-                    symbol_col = df['Symbol'].astype(str).str.strip().str.upper()
-                    exact_mask = symbol_col == symbol_upper
-                    if exact_mask.any():
-                        return df[exact_mask]
-
-                if 'Investment name' in df.columns:
-                    investment_col = df['Investment name'].astype(str).str.strip()
-                    exact_name_mask = investment_col.str.upper() == symbol_upper
-                    if exact_name_mask.any():
-                        return df[exact_name_mask]
-                    token_mask = investment_col.str.contains(
-                        rf"\b{re.escape(custom_symbol)}\b", case=False, regex=True, na=False
-                    )
-                    if token_mask.any():
-                        return df[token_mask]
-
-                logging.error(
-                    "Custom summary inconsistency: Symbol '%s' could not be matched to %s rows on %s.",
-                    custom_symbol,
-                    label,
-                    date_value.date(),
-                )
-                return df.iloc[0:0]
-
-            if custom_investment_name and 'Investment name' in df.columns:
-                investment_col = df['Investment name'].astype(str).str.strip()
-                name_mask = investment_col.str.upper() == custom_investment_name.upper()
-                if name_mask.any():
-                    return df[name_mask]
-            return df
-
         # match sale by trade_date or settlement_date
         sale_tx = merged[
             (merged['trade_date_norm'] == sale_date) &
@@ -437,7 +459,7 @@ def process_custom(merged: pd.DataFrame, custom_summary_path: Union[str, List[st
                 (merged['settlement_norm'] == sale_date) &
                 merged['Transaction type'].str.contains('YOU SOLD', na=False)
             ]
-        sale_tx = _apply_custom_identifier_filter(sale_tx, label='sale', date_value=sale_date)
+        sale_tx = _filter_by_identifier(sale_tx, custom_symbol, custom_investment_name, label='sale', date_value=sale_date)
         if not check_custom_sale_record_exists(sale_tx, sale_date):
             continue
         check_custom_sale_match_unambiguous(sale_date, len(sale_tx))
@@ -510,7 +532,7 @@ def process_custom(merged: pd.DataFrame, custom_summary_path: Union[str, List[st
     total_proceeds = sum(a['proceeds'] for a in allocs)
     total_costs    = sum(a['cost']     for a in allocs)
     total_gain     = round(total_proceeds - total_costs, 2)
-    logging.info(f"Custom (by specific lots): matched {len(allocs)} lots; Gain PLN: {total_gain:.2f}")
+    logging.info("Custom (by specific lots): matched %d lots; Gain PLN: %.2f", len(allocs), total_gain)
     return total_proceeds, total_costs, total_gain
 
 
@@ -543,16 +565,16 @@ def compute_section_g_income_components(merged: pd.DataFrame, year: Optional[int
     else:
         fund_mask = pd.Series(False, index=div_rows.index)
 
-    fund_distributions = round(div_rows.loc[fund_mask, 'amount_pln'].sum(), 2) + 0.0
-    equity_dividends = round(div_rows.loc[~fund_mask, 'amount_pln'].sum(), 2) + 0.0
-    total_income = round(equity_dividends + fund_distributions, 2) + 0.0
+    fund_distributions = abs(round(div_rows.loc[fund_mask, 'amount_pln'].sum(), 2))
+    equity_dividends = abs(round(div_rows.loc[~fund_mask, 'amount_pln'].sum(), 2))
+    total_income = round(equity_dividends + fund_distributions, 2)
 
     foreign_tax_mask = (
         df['Transaction type'].str.contains('NON-RESIDENT TAX', na=False) &
         df['Transaction type'].str.contains('DIVIDEND', na=False)
     )
-    foreign_tax = -df[foreign_tax_mask]['amount_pln'].sum()
-    foreign_tax = round(foreign_tax, 2) + 0.0  # +0.0 avoids -0.00 display
+    foreign_tax = round(-df[foreign_tax_mask]['amount_pln'].sum(), 2)
+    foreign_tax = max(foreign_tax, 0.0)  # avoid -0.00 display; tax withheld is non-negative
 
     return {
         'section_g_total_income': total_income,
@@ -578,8 +600,7 @@ def compute_dividends_and_tax(merged: pd.DataFrame, year: Optional[int] = None) 
     """
     components = compute_section_g_income_components(merged, year=year)
     logging.info(
-        "Section G income PLN: %.2f (equity dividends: %.2f; fund distributions: %.2f); "
-        "Foreign tax PLN: %.2f",
+        "Section G income PLN: %.2f (equity dividends: %.2f; fund distributions: %.2f); Foreign tax PLN: %.2f",
         components['section_g_total_income'],
         components['section_g_equity_dividends'],
         components['section_g_fund_distributions'],
@@ -599,7 +620,7 @@ def compute_foreign_tax_capital_gains(merged: pd.DataFrame, year: Optional[int] 
     foreign_tax_mask = df['Transaction type'].str.contains('NON-RESIDENT TAX', na=False)
     dividend_context_mask = df['Transaction type'].str.contains('DIVIDEND|REINVESTMENT', na=False)
     capital_tax = -df[foreign_tax_mask & ~dividend_context_mask]['amount_pln'].sum()
-    capital_tax = round(max(capital_tax, 0.0), 2) + 0.0
+    capital_tax = round(max(capital_tax, 0.0), 2)
     return capital_tax
 
 
@@ -620,7 +641,7 @@ def load_transactions(tx_csv: Union[str, List[str]]) -> pd.DataFrame:
     Returns:
         DataFrame with added columns: 'trade_date', 'shares', 'amount_usd'.
     """
-    paths = [tx_csv] if isinstance(tx_csv, str) else tx_csv
+    paths = _as_list(tx_csv)
     frames = []
     for p in paths:
         frame = pd.read_csv(p)
@@ -637,7 +658,7 @@ def load_transactions(tx_csv: Union[str, List[str]]) -> pd.DataFrame:
     tx['shares']           = pd.to_numeric(tx['Shares'], errors='coerce')
     tx['amount_usd']       = pd.to_numeric(tx['Amount'].str.replace('[$,]', '', regex=True), errors='coerce')
     check_transaction_data_consistency(tx)
-    logging.info(f"Loaded {len(tx)} transactions from {len(paths)} file(s).")
+    logging.info("Loaded %d transactions from %d file(s).", len(tx), len(paths))
     return tx
 
 
@@ -667,6 +688,10 @@ def calculate_pit38_fields(
     total_dividends: DecimalLike,
     foreign_tax_dividends: DecimalLike,
     foreign_tax_capital_gains: DecimalLike = Decimal("0.0"),
+    *,
+    section_g_equity_dividends: DecimalLike = Decimal("0.0"),
+    section_g_fund_distributions: DecimalLike = Decimal("0.0"),
+    year: Optional[int] = None,
 ) -> PIT38Fields:
     """Compute PIT-38 and PIT-ZG field values from aggregated totals.
 
@@ -698,6 +723,9 @@ def calculate_pit38_fields(
         foreign_tax_dividends: Foreign withholding tax for Section G income in PLN.
         foreign_tax_capital_gains: Foreign tax paid on capital gains in PLN
                 (credit in Poz. 32, capped at Polish tax from Poz. 31).
+        section_g_equity_dividends: Equity-dividend portion of Section G income (metadata).
+        section_g_fund_distributions: Fund-distribution portion of Section G income (metadata).
+        year: Tax year (metadata, stored on the returned object).
 
     Returns:
         PIT38Fields object with PIT-38 Section C/D, Section G, and PIT-ZG fields.
@@ -745,6 +773,10 @@ def calculate_pit38_fields(
         poz47=poz47,
         pitzg_poz29=pitzg_poz29,
         pitzg_poz30=pitzg_poz30,
+        section_g_total_income=dividends_dec.quantize(TWO_PLACES, rounding=ROUND_HALF_UP),
+        section_g_equity_dividends=Decimal(section_g_equity_dividends).quantize(TWO_PLACES, rounding=ROUND_HALF_UP),
+        section_g_fund_distributions=Decimal(section_g_fund_distributions).quantize(TWO_PLACES, rounding=ROUND_HALF_UP),
+        year=year,
     )
 
 
@@ -784,9 +816,10 @@ def calculate_pit38(
 
     if year not in data_years:
         logging.warning(
-            f"Target year {year} not found in transaction data. "
-            f"Data contains years: {data_years}. "
-            f"Use --year to specify the correct tax year."
+            "Target year %d not found in transaction data. Data contains years: %s. "
+            "Use --year to specify the correct tax year.",
+            year,
+            data_years,
         )
 
     tx['rate_date'] = calculate_rate_dates(tx['settlement_date'])
@@ -802,34 +835,23 @@ def calculate_pit38(
         total_proceeds, total_costs, total_gain = process_custom(merged, custom_summary_paths, year=year)
 
     section_g = compute_section_g_income_components(merged, year=year)
-    total_dividends = section_g['section_g_total_income']
-    foreign_tax_dividends = section_g['section_g_foreign_tax']
+    logging.info(
+        "Section G income PLN: %.2f (equity dividends: %.2f; fund distributions: %.2f); Foreign tax PLN: %.2f",
+        section_g['section_g_total_income'],
+        section_g['section_g_equity_dividends'],
+        section_g['section_g_fund_distributions'],
+        section_g['section_g_foreign_tax'],
+    )
     foreign_tax_capital_gains = compute_foreign_tax_capital_gains(merged, year=year)
 
-    pit38_fields = calculate_pit38_fields(
+    return calculate_pit38_fields(
         total_proceeds,
         total_costs,
         total_gain,
-        total_dividends,
-        foreign_tax_dividends,
+        section_g['section_g_total_income'],
+        section_g['section_g_foreign_tax'],
         foreign_tax_capital_gains=foreign_tax_capital_gains,
-    )
-    return PIT38Fields(
-        poz22=pit38_fields.poz22,
-        poz23=pit38_fields.poz23,
-        poz26=pit38_fields.poz26,
-        poz29=pit38_fields.poz29,
-        poz30_rate=pit38_fields.poz30_rate,
-        poz31=pit38_fields.poz31,
-        poz32=pit38_fields.poz32,
-        tax_final=pit38_fields.tax_final,
-        poz45=pit38_fields.poz45,
-        poz46=pit38_fields.poz46,
-        poz47=pit38_fields.poz47,
-        pitzg_poz29=pit38_fields.pitzg_poz29,
-        pitzg_poz30=pit38_fields.pitzg_poz30,
-        section_g_total_income=Decimal(section_g['section_g_total_income']),
-        section_g_equity_dividends=Decimal(section_g['section_g_equity_dividends']),
-        section_g_fund_distributions=Decimal(section_g['section_g_fund_distributions']),
+        section_g_equity_dividends=section_g['section_g_equity_dividends'],
+        section_g_fund_distributions=section_g['section_g_fund_distributions'],
         year=year,
     )
