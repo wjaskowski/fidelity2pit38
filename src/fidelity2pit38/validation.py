@@ -136,18 +136,25 @@ def check_custom_sale_date_quantities(
 
 
 def check_custom_acquired_quantities(custom: pd.DataFrame, merged: pd.DataFrame) -> None:
-    """Validate acquired quantities by source/date against available buy lots."""
+    """Validate acquired quantities by source/date against available buy lots.
+
+    RS (RSU) lots are skipped: their cost is derived from the reported Cost basis
+    and an NBP rate lookup, not from a matching buy transaction. The vest date in
+    the custom summary often differs from the Fidelity transaction date by 1-2 days,
+    making a buy-transaction match unreliable for RS lots.
+    """
     buys = merged[merged['Transaction type'].str.contains('YOU BOUGHT', na=False)].copy()
     custom_valid_acq = custom.dropna(subset=['Date acquired', 'Quantity', 'Stock source']).copy()
     custom_valid_acq['Date acquired norm'] = custom_valid_acq['Date acquired'].dt.normalize()
 
     for (acq_date, source), group in custom_valid_acq.groupby(['Date acquired norm', 'Stock source']):
+        if source == 'RS':
+            # RS lots do not require a matching buy transaction; skip.
+            continue
         needed_qty = float(group['Quantity'].sum())
         candidate = buys
         if source == 'SP':
             candidate = candidate[candidate['Transaction type'].str.contains('ESPP', na=False)]
-        elif source == 'RS':
-            candidate = candidate[candidate['Transaction type'].str.contains('RSU', na=False)]
         trade_qty = float(candidate[candidate['trade_date_norm'] == acq_date]['shares'].sum())
         settle_qty = float(candidate[candidate['settlement_norm'] == acq_date]['shares'].sum())
         available_qty = trade_qty if trade_qty > 0 else settle_qty

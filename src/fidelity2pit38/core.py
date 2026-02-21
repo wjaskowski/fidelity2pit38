@@ -216,6 +216,7 @@ def calculate_rate_dates(settlement_dates: pd.Series) -> pd.Series:
     return pd.Series(rate_dates, index=settlement_dates.index)
 
 
+
 def merge_with_rates(tx: pd.DataFrame, nbp_rates: pd.DataFrame) -> pd.DataFrame:
     """Join transactions with NBP exchange rates and compute PLN amounts.
 
@@ -358,7 +359,12 @@ def _filter_by_identifier(
     return df
 
 
-def process_custom(merged: pd.DataFrame, custom_summary_path: Union[str, List[str]], year: Optional[int] = None) -> Tuple[float, float, float]:
+def process_custom(
+    merged: pd.DataFrame,
+    custom_summary_path: Union[str, List[str]],
+    year: Optional[int] = None,
+    nbp_rates: Optional[pd.DataFrame] = None,  # kept for API compatibility; unused
+) -> Tuple[float, float, float]:
     """Match stock sales to specific lots using a Fidelity custom summary file.
 
     Reads one or more tab-separated summary files (e.g. stock-sales.txt) with
@@ -367,13 +373,14 @@ def process_custom(merged: pd.DataFrame, custom_summary_path: Union[str, List[st
     the transaction history.
 
     Cost basis logic:
-      - Preferred: if the custom file provides parseable 'Cost basis', this
-        value is treated as the lot USD basis and converted to PLN using the
-        matched acquisition transaction's exchange rate.
-      - Fallback (when 'Cost basis' is missing/unparseable):
-        - 'RS' (Restricted Stock / RSU): cost = 0.0.
-        - 'SP' (ESPP): cost derived from matching 'YOU BOUGHT ESPP###' rows.
-        - Other sources: cost derived from matching buy transactions.
+      - 'RS' (RSU): cost is always 0.0 under Polish art. 30b. The 'Cost basis'
+        column in Fidelity exports reflects the US FMV-at-vest amount (ordinary
+        income already recognized in the US), which is not a deductible cost
+        in the Polish tax calculation. The value is ignored entirely.
+      - 'SP' (ESPP) with parseable 'Cost basis': cost basis converted to PLN
+        using the matching buy transaction's exchange rate.
+      - 'SP' / other without parseable 'Cost basis': cost derived from the
+        matching buy transaction's amount_pln.
 
     Sale and buy lookups try trade_date first, then fall back to
     settlement_date, to handle date ambiguity in Fidelity exports.
@@ -385,6 +392,7 @@ def process_custom(merged: pd.DataFrame, custom_summary_path: Union[str, List[st
         custom_summary_path: Path (or list of paths) to tab-separated custom
                 summary TXT file(s).
         year: If set, only rows matched to sales settling in this year are included.
+        nbp_rates: Unused; kept for API compatibility.
 
     Returns:
         Tuple of (total_proceeds, total_costs, total_gain) in PLN.
@@ -469,10 +477,13 @@ def process_custom(merged: pd.DataFrame, custom_summary_path: Union[str, List[st
         proceeds   = round(qty * price_per, 2)
 
         # determine cost
+        # RS (RSU) lots: cost is always 0.0 under Polish art. 30b.  The 'Cost basis'
+        # column in Fidelity exports is the US FMV-at-vest figure (ordinary income
+        # already taxed in the US) — it is not a deductible cost for Polish tax.
+        # SP/other: look up the matching buy transaction to get its PLN amount or rate.
         buy = None
-        need_buy_lookup = pd.notna(reported_cost_basis_usd) or source != 'RS'
-        if need_buy_lookup:
-            # ESPP: match buy by trade_date or settlement_date
+        if source != 'RS':
+            # match buy by trade_date or settlement_date
             buy_tx = merged[
                 (merged['trade_date_norm'] == acq_date) &
                 merged['Transaction type'].str.contains('YOU BOUGHT', na=False)
@@ -495,7 +506,9 @@ def process_custom(merged: pd.DataFrame, custom_summary_path: Union[str, List[st
             check_custom_buy_match_unambiguous(acq_date, source, len(buy_tx))
             buy = buy_tx.iloc[0]
 
-        if pd.notna(reported_cost_basis_usd):
+        if source == 'RS':
+            cost = 0.0
+        elif pd.notna(reported_cost_basis_usd):
             if reported_cost_basis_usd < 0:
                 logging.error(
                     "Custom summary inconsistency: negative Cost basis %.2f USD for sale date %s.",
@@ -511,12 +524,6 @@ def process_custom(merged: pd.DataFrame, custom_summary_path: Union[str, List[st
                 )
                 continue
             cost = round(float(reported_cost_basis_usd) * float(buy['rate']), 2)
-        elif source == 'RS':
-            logging.warning(
-                "Custom summary fallback: missing/invalid Cost basis for RS lot sold on %s; using 0.0 PLN cost.",
-                sale_date.date(),
-            )
-            cost = 0.0
         else:
             if source == 'SP':
                 logging.warning(
@@ -832,7 +839,7 @@ def calculate_pit38(
     else:
         if not custom_summary_paths:
             raise ValueError("custom_summary is required when method='custom'")
-        total_proceeds, total_costs, total_gain = process_custom(merged, custom_summary_paths, year=year)
+        total_proceeds, total_costs, total_gain = process_custom(merged, custom_summary_paths, year=year, nbp_rates=nbp_rates)
 
     section_g = compute_section_g_income_components(merged, year=year)
     logging.info(
