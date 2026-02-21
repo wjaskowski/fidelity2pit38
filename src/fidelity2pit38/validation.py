@@ -17,8 +17,8 @@ def check_no_cross_file_duplicates(tx_raw: pd.DataFrame) -> None:
     if len(cross_file_dup):
         raise ValueError(
             "Duplicate transaction rows found across different CSV files. "
-            f"Detected {len(cross_file_dup)} duplicated row pattern(s); "
-            "remove overlap in input files."
+            "Detected %d duplicated row pattern(s); "
+            "remove overlap in input files." % len(cross_file_dup)
         )
 
 
@@ -32,26 +32,30 @@ def check_transaction_data_consistency(tx: pd.DataFrame) -> None:
         malformed_rows = tx[invalid_trade_dates & has_any_core_value]
         if len(malformed_rows):
             logging.error(
-                f"Data inconsistency: {len(malformed_rows)} row(s) have invalid 'Transaction date' "
-                "with non-empty transaction fields."
+                "Data inconsistency: %d row(s) have invalid 'Transaction date' "
+                "with non-empty transaction fields.",
+                len(malformed_rows),
             )
         ignored_blank_date_rows = int((invalid_trade_dates & ~has_any_core_value).sum())
         if ignored_blank_date_rows:
             logging.info(
-                f"Ignoring {ignored_blank_date_rows} row(s) with empty transaction fields and invalid date."
+                "Ignoring %d row(s) with empty transaction fields and invalid date.",
+                ignored_blank_date_rows,
             )
 
     market_mask = tx['Transaction type'].str.contains('YOU BOUGHT|YOU SOLD', na=False)
     missing_market_shares = tx[market_mask]['shares'].isna().sum()
     if missing_market_shares:
         logging.error(
-            f"Data inconsistency: {missing_market_shares} market-trade row(s) have missing/invalid 'Shares'."
+            "Data inconsistency: %d market-trade row(s) have missing/invalid 'Shares'.",
+            missing_market_shares,
         )
 
     missing_market_amount = tx[market_mask]['amount_usd'].isna().sum()
     if missing_market_amount:
         logging.error(
-            f"Data inconsistency: {missing_market_amount} market-trade row(s) have missing/invalid 'Amount'."
+            "Data inconsistency: %d market-trade row(s) have missing/invalid 'Amount'.",
+            missing_market_amount,
         )
 
 
@@ -59,8 +63,11 @@ def check_fifo_sale_not_oversell(settlement_date: pd.Timestamp, qty: float, avai
     """Log when sale quantity exceeds currently available buy lots."""
     if qty > available_qty:
         logging.error(
-            f"FIFO inconsistency: attempting to sell {qty:.4f} shares on "
-            f"{settlement_date.date()}, but only {available_qty:.4f} shares remain in buy lots."
+            "FIFO inconsistency: attempting to sell %.4f shares on %s, "
+            "but only %.4f shares remain in buy lots.",
+            qty,
+            settlement_date.date(),
+            available_qty,
         )
 
 
@@ -68,8 +75,9 @@ def check_fifo_open_lots_available(settlement_date: pd.Timestamp, qty: float, ha
     """Check whether any open buy lots are available for current sale matching."""
     if not has_open_lots:
         logging.error(
-            f"FIFO inconsistency: no remaining buy lots for sale on "
-            f"{settlement_date.date()}; unmatched quantity {qty:.4f} shares."
+            "FIFO inconsistency: no remaining buy lots for sale on %s; unmatched quantity %.4f shares.",
+            settlement_date.date(),
+            qty,
         )
         return False
     return True
@@ -85,8 +93,9 @@ def check_custom_summary_rows_valid(custom: pd.DataFrame) -> None:
     ]
     if len(invalid_rows):
         logging.error(
-            f"Custom summary inconsistency: {len(invalid_rows)} row(s) have invalid "
-            "Date sold/Date acquired/Quantity and will be skipped."
+            "Custom summary inconsistency: %d row(s) have invalid "
+            "Date sold/Date acquired/Quantity and will be skipped.",
+            len(invalid_rows),
         )
 
 
@@ -113,12 +122,16 @@ def check_custom_sale_date_quantities(
         available_qty = trade_qty if trade_qty > 0 else settle_qty
         if available_qty == 0:
             logging.error(
-                f"Custom summary inconsistency: no YOU SOLD transaction found for sale date {sale_date.date()}."
+                "Custom summary inconsistency: no YOU SOLD transaction found for sale date %s.",
+                sale_date.date(),
             )
         elif custom_qty > available_qty:
             logging.error(
-                f"Custom summary inconsistency: sale-date quantity {custom_qty:.4f} on {sale_date.date()} "
-                f"exceeds available sold quantity {available_qty:.4f}."
+                "Custom summary inconsistency: sale-date quantity %.4f on %s "
+                "exceeds available sold quantity %.4f.",
+                custom_qty,
+                sale_date.date(),
+                available_qty,
             )
 
 
@@ -140,14 +153,18 @@ def check_custom_acquired_quantities(custom: pd.DataFrame, merged: pd.DataFrame)
         available_qty = trade_qty if trade_qty > 0 else settle_qty
         if available_qty == 0:
             logging.error(
-                f"Custom summary inconsistency: no matching buy lot for Date acquired={acq_date.date()} "
-                f"and Stock source={source}."
+                "Custom summary inconsistency: no matching buy lot for Date acquired=%s and Stock source=%s.",
+                acq_date.date(),
+                source,
             )
         elif needed_qty > available_qty:
             logging.error(
-                f"Custom summary inconsistency: acquired quantity {needed_qty:.4f} for "
-                f"Date acquired={acq_date.date()}, source={source} exceeds available buy quantity "
-                f"{available_qty:.4f}."
+                "Custom summary inconsistency: acquired quantity %.4f for "
+                "Date acquired=%s, source=%s exceeds available buy quantity %.4f.",
+                needed_qty,
+                acq_date.date(),
+                source,
+                available_qty,
             )
 
 
@@ -155,7 +172,9 @@ def check_custom_sale_match_unambiguous(sale_date: pd.Timestamp, count: int) -> 
     """Log ambiguous sale-date matching in custom mode."""
     if count > 1:
         logging.error(
-            f"Custom summary ambiguity: {count} sale rows match {sale_date.date()}; using the first one."
+            "Custom summary ambiguity: %d sale rows match %s; using the first one.",
+            count,
+            sale_date.date(),
         )
 
 
@@ -163,21 +182,23 @@ def check_custom_buy_match_unambiguous(acq_date: pd.Timestamp, source: Optional[
     """Log ambiguous buy-date matching in custom mode."""
     if count > 1:
         logging.error(
-            f"Custom summary ambiguity: {count} buy rows match {acq_date.date()} "
-            f"(source={source}); using the first one."
+            "Custom summary ambiguity: %d buy rows match %s (source=%s); using the first one.",
+            count,
+            acq_date.date(),
+            source,
         )
 
 
 def check_exchange_rates_present(missing_count: int) -> None:
     """Log missing exchange-rate matches after rate merge."""
     if missing_count:
-        logging.error(f"{missing_count} transactions missing exchange rate.")
+        logging.error("%d transactions missing exchange rate.", missing_count)
 
 
 def check_custom_sale_record_exists(sale_tx: pd.DataFrame, sale_date: pd.Timestamp) -> bool:
     """Check whether a custom-summary row can be matched to a sale record."""
     if sale_tx.empty:
-        logging.error(f"No sale record found for {sale_date}")
+        logging.error("No sale record found for %s", sale_date)
         return False
     return True
 
@@ -185,6 +206,6 @@ def check_custom_sale_record_exists(sale_tx: pd.DataFrame, sale_date: pd.Timesta
 def check_custom_buy_record_exists(buy_tx: pd.DataFrame, acq_date: pd.Timestamp, source: Optional[str]) -> bool:
     """Check whether a custom-summary row can be matched to a buy record."""
     if buy_tx.empty:
-        logging.error(f"No buy record found for {acq_date} (source={source})")
+        logging.error("No buy record found for %s (source=%s)", acq_date, source)
         return False
     return True
