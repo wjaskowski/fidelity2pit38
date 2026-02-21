@@ -2,7 +2,7 @@
 
 Creates PIT-38 from your Fidelity history.
 
-**News**: Updated to handle 2025, but I am still checking if it works correctly.
+**News**: Updated to handle 2025. It might work correctly.
 
 ## Documentation
 
@@ -52,7 +52,7 @@ PIT-ZG (dochody zagraniczne):
 
 ### Non-FIFO
 
-**Warning**: [WIP]: probably doesn't work correctly
+**Warning**: Less tested then the default FIFO method
 
 If instead of FIFO, you prefer to use information about the specific stocks you sold use
 ```sh
