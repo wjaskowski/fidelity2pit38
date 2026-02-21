@@ -52,7 +52,7 @@ PIT-ZG (dochody zagraniczne):
 
 ### Non-FIFO
 
-**Warning**: Less tested then the default FIFO method
+**Warning**: Less tested than the default FIFO method
 
 If instead of FIFO, you prefer to use information about the specific stocks you sold use
 ```sh
