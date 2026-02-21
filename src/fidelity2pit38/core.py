@@ -17,6 +17,7 @@ from pandas.tseries.holiday import AbstractHolidayCalendar, GoodFriday, USFedera
 from pandas.tseries.offsets import CustomBusinessDay
 from workalendar.europe import Poland
 
+from .pit38_fields import PIT38Fields
 from .validation import (
     check_custom_acquired_quantities,
     check_custom_buy_match_unambiguous,
@@ -30,16 +31,35 @@ from .validation import (
     check_fifo_sale_not_oversell,
     check_no_cross_file_duplicates,
     check_transaction_data_consistency,
-    strip_known_fidelity_footer_rows,
 )
 
 # constant for switch from T+2 to T+1
 SWITCH_DATE = pd.Timestamp('2024-05-28')
+DecimalLike = Union[Decimal, float, int, str]
+TWO_PLACES = Decimal("0.01")
 
 
 class USSettlementHolidayCalendar(AbstractHolidayCalendar):
     """US settlement calendar: federal holidays plus Good Friday."""
     rules = list(USFederalHolidayCalendar.rules) + [GoodFriday]
+
+
+def _strip_known_fidelity_footer_rows(tx_raw: pd.DataFrame) -> pd.DataFrame:
+    """Silently remove known non-transaction footer rows from Fidelity CSV exports."""
+    footer_mask = (
+        tx_raw['Transaction type'].isna() &
+        tx_raw['Investment name'].isna() &
+        tx_raw['Shares'].isna() &
+        tx_raw['Amount'].isna() &
+        tx_raw['Transaction date'].astype(str).str.contains(
+            r"Unless noted otherwise|Stock plan account history as of",
+            case=False,
+            na=False,
+        )
+    )
+    if footer_mask.any():
+        return tx_raw.loc[~footer_mask].copy()
+    return tx_raw
 
 
 def discover_transaction_files(directory: str) -> Tuple[List[str], List[str]]:
@@ -49,17 +69,23 @@ def discover_transaction_files(directory: str) -> Tuple[List[str], List[str]]:
         directory: Path to the directory to scan.
 
     Returns:
-        Tuple of (csv_paths, txt_paths), each sorted alphabetically.
+        Tuple of (transaction_history_csv_files, stock_sales_txt_files),
+        each sorted alphabetically.
     """
     d = Path(directory)
-    csv_paths = sorted(str(p) for p in d.glob("Transaction history*.csv"))
-    txt_paths = sorted(str(p) for p in d.glob("stock-sales*.txt"))
-    logging.info(f"Discovered {len(csv_paths)} CSV(s) and {len(txt_paths)} TXT(s) in {directory}")
-    for p in csv_paths:
+    transaction_history_csv_files = sorted(str(p) for p in d.glob("Transaction history*.csv"))
+    stock_sales_txt_files = sorted(str(p) for p in d.glob("stock-sales*.txt"))
+    logging.info(
+        "Discovered %d CSV(s) and %d TXT(s) in %s",
+        len(transaction_history_csv_files),
+        len(stock_sales_txt_files),
+        directory,
+    )
+    for p in transaction_history_csv_files:
         logging.info(f"  CSV: {p}")
-    for p in txt_paths:
+    for p in stock_sales_txt_files:
         logging.info(f"  TXT: {p}")
-    return csv_paths, txt_paths
+    return transaction_history_csv_files, stock_sales_txt_files
 
 
 def build_nbp_rate_urls(years: List[int]) -> List[str]:
@@ -601,7 +627,7 @@ def load_transactions(tx_csv: Union[str, List[str]]) -> pd.DataFrame:
         frame['_source_file'] = str(p)
         frames.append(frame)
     tx_raw = pd.concat(frames, ignore_index=True)
-    tx_raw = strip_known_fidelity_footer_rows(tx_raw)
+    tx_raw = _strip_known_fidelity_footer_rows(tx_raw)
     if len(paths) > 1:
         check_no_cross_file_duplicates(tx_raw)
 
@@ -615,7 +641,7 @@ def load_transactions(tx_csv: Union[str, List[str]]) -> pd.DataFrame:
     return tx
 
 
-def _round_tax(value: float) -> int:
+def _round_tax(value: DecimalLike) -> int:
     """Round to full PLN per Ordynacja Podatkowa art. 63 §1.
 
     Fractional amounts below 50 groszy are dropped; 50 groszy and above
@@ -623,24 +649,25 @@ def _round_tax(value: float) -> int:
 
     Examples: 1234.49 -> 1234, 1234.50 -> 1235, 1234.99 -> 1235, 0.0 -> 0
     """
-    if value < 0:
+    value_dec = Decimal(value)
+    if value_dec < 0:
         return 0
-    return int(Decimal(str(value)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    return int(value_dec.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
-def _round_up_to_grosz(value: float) -> float:
+def _round_up_to_grosz(value: DecimalLike) -> Decimal:
     """Round up to full grosz (0.01 PLN) per Ordynacja art. 63 §1a."""
-    return float(Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_CEILING))
+    return Decimal(value).quantize(TWO_PLACES, rounding=ROUND_CEILING)
 
 
 def calculate_pit38_fields(
-    total_proceeds: float,
-    total_costs: float,
-    total_gain: float,
-    total_dividends: float,
-    foreign_tax_dividends: float,
-    foreign_tax_capital_gains: float = 0.0,
-) -> Dict[str, float]:
+    total_proceeds: DecimalLike,
+    total_costs: DecimalLike,
+    total_gain: DecimalLike,
+    total_dividends: DecimalLike,
+    foreign_tax_dividends: DecimalLike,
+    foreign_tax_capital_gains: DecimalLike = Decimal("0.0"),
+) -> PIT38Fields:
     """Compute PIT-38 and PIT-ZG field values from aggregated totals.
 
     Section C/D (art. 30b) — capital gains from stock sales:
@@ -673,62 +700,71 @@ def calculate_pit38_fields(
                 (credit in Poz. 32, capped at Polish tax from Poz. 31).
 
     Returns:
-        Dict with PIT-38 Section C/D, Section G, and PIT-ZG fields.
+        PIT38Fields object with PIT-38 Section C/D, Section G, and PIT-ZG fields.
     """
+    proceeds_dec = Decimal(total_proceeds)
+    costs_dec = Decimal(total_costs)
+    gain_dec = Decimal(total_gain)
+    dividends_dec = Decimal(total_dividends)
+    foreign_tax_div_dec = Decimal(foreign_tax_dividends)
+    foreign_tax_cap_gain_dec = Decimal(foreign_tax_capital_gains)
+
     # --- Section C/D: capital gains (art. 30b) ---
-    poz22 = round(total_proceeds, 2)
-    poz23 = round(total_costs, 2)
-    poz26 = round(poz22 - poz23, 2)
-    poz29 = _round_tax(poz26)           # tax base
-    poz30_rate = 0.19
-    poz31 = round(poz29 * poz30_rate, 2)
-    poz32 = round(min(max(foreign_tax_capital_gains, 0.0), poz31), 2)
-    tax_final = _round_tax(max(poz31 - poz32, 0))  # Poz. 33
+    poz22 = proceeds_dec.quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
+    poz23 = costs_dec.quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
+    poz26 = (poz22 - poz23).quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
+    poz29 = Decimal(_round_tax(poz26))          # tax base
+    poz30_rate = Decimal("0.19")
+    poz31 = (poz29 * poz30_rate).quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
+    poz32 = min(max(foreign_tax_cap_gain_dec, Decimal("0.00")), poz31).quantize(
+        TWO_PLACES,
+        rounding=ROUND_HALF_UP,
+    )
+    tax_final = Decimal(_round_tax(poz31 - poz32))  # Poz. 33
 
     # --- Section G: zryczałtowane przychody (art. 30a ust.1 pkt 1-5) ---
-    poz45 = _round_up_to_grosz(total_dividends * poz30_rate)
-    poz45 = round(poz45, 2) + 0.0
-    poz46 = round(min(foreign_tax_dividends, poz45), 2)  # credit capped at Polish tax
-    poz47 = _round_tax(max(poz45 - poz46, 0))
+    poz45 = _round_up_to_grosz(dividends_dec * poz30_rate)
+    poz46 = min(foreign_tax_div_dec, poz45).quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
+    poz47 = Decimal(_round_tax(poz45 - poz46))
 
     # --- PIT-ZG: foreign income ---
-    pitzg_poz29 = total_gain
+    pitzg_poz29 = gain_dec.quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
     pitzg_poz30 = poz32  # foreign tax on capital gains (not dividends)
 
-    return {
-        'poz22': poz22,
-        'poz23': poz23,
-        'poz26': poz26,
-        'poz29': poz29,
-        'poz30_rate': poz30_rate,
-        'poz31': poz31,
-        'poz32': poz32,
-        'tax_final': tax_final,
-        'poz45': poz45,
-        'poz46': poz46,
-        'poz47': poz47,
-        'pitzg_poz29': pitzg_poz29,
-        'pitzg_poz30': pitzg_poz30,
-    }
+    return PIT38Fields(
+        poz22=poz22,
+        poz23=poz23,
+        poz26=poz26,
+        poz29=poz29,
+        poz30_rate=poz30_rate,
+        poz31=poz31,
+        poz32=poz32,
+        tax_final=tax_final,
+        poz45=poz45,
+        poz46=poz46,
+        poz47=poz47,
+        pitzg_poz29=pitzg_poz29,
+        pitzg_poz30=pitzg_poz30,
+    )
 
 
 def calculate_pit38(
     tx_csv: Union[str, List[str]],
     year: int = 2024,
     method: str = 'fifo',
-    custom_summary: Union[str, List[str], None] = None,
-) -> Dict[str, float]:
+    custom_summary: Optional[List[str]] = None,
+) -> PIT38Fields:
     """Run the full PIT-38 calculation pipeline.
 
     Args:
         tx_csv: Path (or list of paths) to Fidelity transaction history CSV file(s).
         year: Tax year to process.
         method: 'fifo' or 'custom' lot matching method.
-        custom_summary: Path (or list of paths) to custom summary TXT file(s)
-                (required when method='custom').
+        custom_summary: List of paths to custom summary TXT files.
+                Required when method='custom'; use [] in non-custom flows.
 
     Returns:
-        Dict with PIT-38 and PIT-ZG fields plus 'year'.
+        PIT38Fields with PIT-38/PIT-ZG values and report metadata.
     """
     tx = load_transactions(tx_csv)
     tx['settlement_date'] = calculate_settlement_dates(tx['trade_date'], tx['Transaction type'])
@@ -756,19 +792,21 @@ def calculate_pit38(
     tx['rate_date'] = calculate_rate_dates(tx['settlement_date'])
     merged = merge_with_rates(tx, nbp_rates)
 
+    custom_summary_paths = custom_summary or []
+
     if method == 'fifo':
         total_proceeds, total_costs, total_gain = process_fifo(merged, year=year)
     else:
-        if not custom_summary:
+        if not custom_summary_paths:
             raise ValueError("custom_summary is required when method='custom'")
-        total_proceeds, total_costs, total_gain = process_custom(merged, custom_summary, year=year)
+        total_proceeds, total_costs, total_gain = process_custom(merged, custom_summary_paths, year=year)
 
     section_g = compute_section_g_income_components(merged, year=year)
     total_dividends = section_g['section_g_total_income']
     foreign_tax_dividends = section_g['section_g_foreign_tax']
     foreign_tax_capital_gains = compute_foreign_tax_capital_gains(merged, year=year)
 
-    result = calculate_pit38_fields(
+    pit38_fields = calculate_pit38_fields(
         total_proceeds,
         total_costs,
         total_gain,
@@ -776,12 +814,22 @@ def calculate_pit38(
         foreign_tax_dividends,
         foreign_tax_capital_gains=foreign_tax_capital_gains,
     )
-    result.update(
-        {
-            'section_g_total_income': section_g['section_g_total_income'],
-            'section_g_equity_dividends': section_g['section_g_equity_dividends'],
-            'section_g_fund_distributions': section_g['section_g_fund_distributions'],
-        }
+    return PIT38Fields(
+        poz22=pit38_fields.poz22,
+        poz23=pit38_fields.poz23,
+        poz26=pit38_fields.poz26,
+        poz29=pit38_fields.poz29,
+        poz30_rate=pit38_fields.poz30_rate,
+        poz31=pit38_fields.poz31,
+        poz32=pit38_fields.poz32,
+        tax_final=pit38_fields.tax_final,
+        poz45=pit38_fields.poz45,
+        poz46=pit38_fields.poz46,
+        poz47=pit38_fields.poz47,
+        pitzg_poz29=pit38_fields.pitzg_poz29,
+        pitzg_poz30=pit38_fields.pitzg_poz30,
+        section_g_total_income=Decimal(section_g['section_g_total_income']),
+        section_g_equity_dividends=Decimal(section_g['section_g_equity_dividends']),
+        section_g_fund_distributions=Decimal(section_g['section_g_fund_distributions']),
+        year=year,
     )
-    result['year'] = year
-    return result

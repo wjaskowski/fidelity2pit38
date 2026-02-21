@@ -1,6 +1,6 @@
-import pytest
+from decimal import Decimal
 
-from fidelity2pit38 import calculate_pit38_fields
+from fidelity2pit38 import PIT38Fields, calculate_pit38_fields
 from fidelity2pit38.core import _round_tax
 
 
@@ -47,14 +47,15 @@ class TestCapitalGainsSection:
             total_dividends=0.0,
             foreign_tax_dividends=0.0,
         )
-        assert result["poz22"] == 10000.0   # proceeds only (no dividends)
-        assert result["poz23"] == 4000.0    # costs
-        assert result["poz26"] == 6000.0    # income
-        assert result["poz29"] == 6000      # tax base
-        assert result["poz30_rate"] == 0.19
-        assert result["poz31"] == 1140.0    # 6000 * 0.19
-        assert result["poz32"] == 0.0       # US doesn't withhold on stock sales
-        assert result["tax_final"] == 1140  # 1140 - 0
+        assert isinstance(result, PIT38Fields)
+        assert result["poz22"] == Decimal("10000.00")   # proceeds only (no dividends)
+        assert result["poz23"] == Decimal("4000.00")    # costs
+        assert result["poz26"] == Decimal("6000.00")    # income
+        assert result["poz29"] == Decimal("6000")       # tax base
+        assert result["poz30_rate"] == Decimal("0.19")
+        assert result["poz31"] == Decimal("1140.00")    # 6000 * 0.19
+        assert result["poz32"] == Decimal("0.00")       # US doesn't withhold on stock sales
+        assert result["tax_final"] == Decimal("1140")   # 1140 - 0
 
     def test_dividends_excluded_from_poz22(self):
         """Dividends go to Section G, NOT Poz. 22."""
@@ -66,9 +67,9 @@ class TestCapitalGainsSection:
             foreign_tax_dividends=50.0,
         )
         # Poz. 22 should NOT include dividends
-        assert result["poz22"] == 10000.0
-        assert result["poz23"] == 4000.0
-        assert result["poz26"] == 6000.0
+        assert result["poz22"] == Decimal("10000.00")
+        assert result["poz23"] == Decimal("4000.00")
+        assert result["poz26"] == Decimal("6000.00")
 
     def test_zero_values(self):
         result = calculate_pit38_fields(
@@ -78,12 +79,12 @@ class TestCapitalGainsSection:
             total_dividends=0.0,
             foreign_tax_dividends=0.0,
         )
-        assert result["poz22"] == 0.0
-        assert result["poz23"] == 0.0
-        assert result["poz26"] == 0.0
-        assert result["poz29"] == 0
-        assert result["poz31"] == 0.0
-        assert result["tax_final"] == 0
+        assert result["poz22"] == Decimal("0.00")
+        assert result["poz23"] == Decimal("0.00")
+        assert result["poz26"] == Decimal("0.00")
+        assert result["poz29"] == Decimal("0")
+        assert result["poz31"] == Decimal("0.00")
+        assert result["tax_final"] == Decimal("0")
 
     def test_tax_cannot_be_negative(self):
         """Poz. 33 should be 0 when foreign tax exceeds computed tax."""
@@ -95,8 +96,8 @@ class TestCapitalGainsSection:
             foreign_tax_dividends=0.0,
         )
         # Poz. 32 is always 0 for US stocks (no withholding on stock sales)
-        assert result["poz32"] == 0.0
-        assert result["tax_final"] == _round_tax(1000 * 0.19)
+        assert result["poz32"] == Decimal("0.00")
+        assert result["tax_final"] == Decimal(str(_round_tax(1000 * 0.19)))
 
     def test_foreign_tax_credit_for_capital_gains_applied(self):
         result = calculate_pit38_fields(
@@ -107,9 +108,9 @@ class TestCapitalGainsSection:
             foreign_tax_dividends=0.0,
             foreign_tax_capital_gains=500.0,
         )
-        assert result["poz31"] == pytest.approx(1900.0, abs=0.01)
-        assert result["poz32"] == pytest.approx(500.0, abs=0.01)
-        assert result["tax_final"] == 1400
+        assert result["poz31"] == Decimal("1900.00")
+        assert result["poz32"] == Decimal("500.00")
+        assert result["tax_final"] == Decimal("1400")
 
     def test_foreign_tax_credit_for_capital_gains_capped(self):
         result = calculate_pit38_fields(
@@ -121,9 +122,9 @@ class TestCapitalGainsSection:
             foreign_tax_capital_gains=500.0,
         )
         # Poz.31 = 190, so Poz.32 cannot exceed 190
-        assert result["poz31"] == pytest.approx(190.0, abs=0.01)
-        assert result["poz32"] == pytest.approx(190.0, abs=0.01)
-        assert result["tax_final"] == 0
+        assert result["poz31"] == Decimal("190.00")
+        assert result["poz32"] == Decimal("190.00")
+        assert result["tax_final"] == Decimal("0")
 
     def test_rounding_tax_base_49_groszy(self):
         """poz29 rounds down when < 50 groszy."""
@@ -134,7 +135,7 @@ class TestCapitalGainsSection:
             total_dividends=0.0,
             foreign_tax_dividends=0.0,
         )
-        assert result["poz29"] == 1000
+        assert result["poz29"] == Decimal("1000")
 
     def test_rounding_tax_base_50_groszy(self):
         """poz29 rounds up when >= 50 groszy."""
@@ -145,7 +146,7 @@ class TestCapitalGainsSection:
             total_dividends=0.0,
             foreign_tax_dividends=0.0,
         )
-        assert result["poz29"] == 1001
+        assert result["poz29"] == Decimal("1001")
 
     def test_rounding_tax_base_51_groszy(self):
         result = calculate_pit38_fields(
@@ -155,7 +156,7 @@ class TestCapitalGainsSection:
             total_dividends=0.0,
             foreign_tax_dividends=0.0,
         )
-        assert result["poz29"] == 1001
+        assert result["poz29"] == Decimal("1001")
 
     def test_loss_gives_zero_tax_base(self):
         """When costs > proceeds, poz26 is negative, poz29 should be 0."""
@@ -166,10 +167,10 @@ class TestCapitalGainsSection:
             total_dividends=0.0,
             foreign_tax_dividends=0.0,
         )
-        assert result["poz26"] == -1000.0
-        assert result["poz29"] == 0  # _round_tax clamps negative to 0
-        assert result["poz31"] == 0.0
-        assert result["tax_final"] == 0
+        assert result["poz26"] == Decimal("-1000.00")
+        assert result["poz29"] == Decimal("0")  # _round_tax clamps negative to 0
+        assert result["poz31"] == Decimal("0.00")
+        assert result["tax_final"] == Decimal("0")
 
 
 class TestDividendSection:
@@ -184,11 +185,11 @@ class TestDividendSection:
             foreign_tax_dividends=150.0,
         )
         # 19% of 1000 = 190
-        assert result["poz45"] == pytest.approx(190.0, abs=0.01)
+        assert result["poz45"] == Decimal("190.00")
         # Foreign tax capped at Polish tax
-        assert result["poz46"] == pytest.approx(150.0, abs=0.01)
+        assert result["poz46"] == Decimal("150.00")
         # 190 - 150 = 40
-        assert result["poz47"] == 40
+        assert result["poz47"] == Decimal("40")
 
     def test_foreign_tax_capped_at_polish_tax(self):
         """Foreign tax credit cannot exceed Polish 19% tax on dividends."""
@@ -200,11 +201,11 @@ class TestDividendSection:
             foreign_tax_dividends=50.0,  # 50% withholding > 19% Polish tax
         )
         # 19% of 100 = 19
-        assert result["poz45"] == pytest.approx(19.0, abs=0.01)
+        assert result["poz45"] == Decimal("19.00")
         # Credit capped at 19, not 50
-        assert result["poz46"] == pytest.approx(19.0, abs=0.01)
+        assert result["poz46"] == Decimal("19.00")
         # 19 - 19 = 0
-        assert result["poz47"] == 0
+        assert result["poz47"] == Decimal("0")
 
     def test_zero_dividends(self):
         result = calculate_pit38_fields(
@@ -214,9 +215,9 @@ class TestDividendSection:
             total_dividends=0.0,
             foreign_tax_dividends=0.0,
         )
-        assert result["poz45"] == 0.0
-        assert result["poz46"] == 0.0
-        assert result["poz47"] == 0
+        assert result["poz45"] == Decimal("0.00")
+        assert result["poz46"] == Decimal("0.00")
+        assert result["poz47"] == Decimal("0")
 
     def test_negative_dividends_net(self):
         """Reinvestment can make net dividends negative; tax should be 0."""
@@ -229,7 +230,7 @@ class TestDividendSection:
         )
         # 19% of -50 = -9.50 -> ceil to grosze -> -9.50 -> but poz47 clamped
         # Negative dividends shouldn't produce positive tax
-        assert result["poz47"] == 0
+        assert result["poz47"] == Decimal("0")
 
 
 class TestPitZG:
@@ -243,8 +244,8 @@ class TestPitZG:
             total_dividends=500.0,
             foreign_tax_dividends=50.0,
         )
-        assert result["pitzg_poz29"] == 6000.0  # capital gains only
-        assert result["pitzg_poz30"] == 0.0      # US doesn't withhold on stock sales
+        assert result["pitzg_poz29"] == Decimal("6000.00")  # capital gains only
+        assert result["pitzg_poz30"] == Decimal("0.00")      # US doesn't withhold on stock sales
 
     def test_pitzg_with_zero_gain(self):
         result = calculate_pit38_fields(
@@ -254,5 +255,5 @@ class TestPitZG:
             total_dividends=100.0,
             foreign_tax_dividends=15.0,
         )
-        assert result["pitzg_poz29"] == 0.0
-        assert result["pitzg_poz30"] == 0.0
+        assert result["pitzg_poz29"] == Decimal("0.00")
+        assert result["pitzg_poz30"] == Decimal("0.00")

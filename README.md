@@ -58,10 +58,7 @@ If instead of FIFO, you prefer to use information about the specific stocks you 
 ```sh
 uv run fidelity2pit38 --method custom
 ```
-The `stock-sales*.txt` files are auto-discovered in the data directory. You can also specify them explicitly:
-```sh
-uv run fidelity2pit38 --method custom --custom-summary data/stock-sales.txt
-```
+The `stock-sales*.txt` files are auto-discovered in the data directory.
 The stock-sales.txt file can be created by copy&paste from Fidelity -> Statements / Records -> Custom Transaction Summary -> (Select year) View Transactions -> Stock Sales (select & copy the whole table)
 
 

@@ -13,29 +13,29 @@ class TestDiscoverTransactionFiles:
         (tmp_path / "stock-sales-2024.txt").touch()
         (tmp_path / "unrelated.csv").touch()
 
-        csvs, txts = discover_transaction_files(str(tmp_path))
-        assert len(csvs) == 2
-        assert len(txts) == 2
-        assert all("Transaction history" in c for c in csvs)
-        assert all("stock-sales" in t for t in txts)
+        transaction_history_csv_files, stock_sales_txt_files = discover_transaction_files(str(tmp_path))
+        assert len(transaction_history_csv_files) == 2
+        assert len(stock_sales_txt_files) == 2
+        assert all("Transaction history" in c for c in transaction_history_csv_files)
+        assert all("stock-sales" in t for t in stock_sales_txt_files)
 
     def test_empty_directory(self, tmp_path):
-        csvs, txts = discover_transaction_files(str(tmp_path))
-        assert csvs == []
-        assert txts == []
+        transaction_history_csv_files, stock_sales_txt_files = discover_transaction_files(str(tmp_path))
+        assert transaction_history_csv_files == []
+        assert stock_sales_txt_files == []
 
     def test_only_csvs(self, tmp_path):
         (tmp_path / "Transaction history.csv").touch()
-        csvs, txts = discover_transaction_files(str(tmp_path))
-        assert len(csvs) == 1
-        assert len(txts) == 0
+        transaction_history_csv_files, stock_sales_txt_files = discover_transaction_files(str(tmp_path))
+        assert len(transaction_history_csv_files) == 1
+        assert len(stock_sales_txt_files) == 0
 
     def test_sorted_alphabetically(self, tmp_path):
         (tmp_path / "Transaction history 2025.csv").touch()
         (tmp_path / "Transaction history 2024.csv").touch()
-        csvs, _ = discover_transaction_files(str(tmp_path))
-        assert "2024" in csvs[0]
-        assert "2025" in csvs[1]
+        transaction_history_csv_files, _ = discover_transaction_files(str(tmp_path))
+        assert "2024" in transaction_history_csv_files[0]
+        assert "2025" in transaction_history_csv_files[1]
 
 
 class TestBuildNbpRateUrls:
