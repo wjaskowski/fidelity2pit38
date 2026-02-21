@@ -78,16 +78,22 @@ def test_year_filter_uses_sale_settlement_year(tmp_path):
     assert gain_2025 == pytest.approx(600.0, abs=0.01)
 
 
-def test_reported_cost_basis_used_for_rs_lot(tmp_path):
+def test_rs_lot_cost_is_always_zero(tmp_path):
+    """RS (RSU) lots must always have cost=0 under Polish art. 30b.
+
+    The 'Cost basis' column in Fidelity exports is the US FMV-at-vest amount
+    (ordinary income recognised in the US) and is NOT a deductible cost for
+    Polish capital-gains tax — it is ignored regardless of its value.
+    """
     merged = pd.DataFrame(
         {
-            "trade_date": pd.to_datetime(["Dec-13-2024", "Dec-16-2024"]),
-            "settlement_date": pd.to_datetime(["Dec-13-2024", "Dec-16-2024"]),
-            "Transaction type": ["YOU BOUGHT RSU####", "YOU SOLD"],
-            "Investment name": ["ACME", "ACME"],
-            "shares": [5.0, -5.0],
-            "amount_pln": [0.0, 500.0],
-            "rate": [4.0, 4.05],
+            "trade_date": pd.to_datetime(["Dec-16-2024"]),
+            "settlement_date": pd.to_datetime(["Dec-16-2024"]),
+            "Transaction type": ["YOU SOLD"],
+            "Investment name": ["ACME"],
+            "shares": [-5.0],
+            "amount_pln": [500.0],
+            "rate": [4.05],
         }
     )
     custom_file = tmp_path / "custom_rs_cost_basis.txt"
@@ -98,8 +104,8 @@ def test_reported_cost_basis_used_for_rs_lot(tmp_path):
 
     proceeds, costs, gain = process_custom(merged, str(custom_file), year=2024)
     assert proceeds == pytest.approx(500.0, abs=0.01)
-    assert costs == pytest.approx(1000.0, abs=0.01)
-    assert gain == pytest.approx(-500.0, abs=0.01)
+    assert costs == pytest.approx(0.0, abs=0.01)
+    assert gain == pytest.approx(500.0, abs=0.01)
 
 
 def test_reported_cost_basis_overrides_sp_buy_amount(tmp_path):
