@@ -7,7 +7,7 @@ import pytest
 import fidelity2pit38
 
 PROJECT_DIR = Path(__file__).parent.parent
-DATA_DIR = PROJECT_DIR / "data"
+DATA_DIR = PROJECT_DIR / "data-sample"
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
 
