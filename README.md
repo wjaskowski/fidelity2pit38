@@ -1,9 +1,8 @@
 # fidelity2pit38
 
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-wojciechjap-FFDD00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/wojciechjap)
-<a href="https://buymeacoffee.com/wojciechjap"><img src="https://img.buymeacoffee.com/button-api/?text=Buy me a coffee&emoji=&slug=wojciechjap&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" height="40"/></a>
 
-Creates PIT-38 from your Fidelity history.
+Creates PIT-38 from your Fidelity (RSU, ESPP) history.
 
 **News**: Updated to handle 2025 (and multi-year).
 
