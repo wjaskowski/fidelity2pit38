@@ -41,9 +41,6 @@ class PIT38Fields:
         print(f"  Poz. 33 (Podatek nalezny): {self.tax_final:.2f} PLN")
 
         print("\nCzesc G - Zryczaltowany podatek (art. 30a ust. 1 pkt 1-5):")
-        print(f"  Podstawa czesci G (lacznie): {self.section_g_total_income:.2f} PLN")
-        print(f"    w tym dywidendy (akcje): {self.section_g_equity_dividends:.2f} PLN")
-        print(f"    w tym fundusze/MMF: {self.section_g_fund_distributions:.2f} PLN")
         print(f"  Poz. 45 (Podatek 19% od przychodow czesci G): {self.poz45:.2f} PLN")
         print(f"  Poz. 46 (Podatek zaplacony za granica): {self.poz46:.2f} PLN")
         print(f"  Poz. 47 (Do zaplaty): {self.poz47:.2f} PLN")
