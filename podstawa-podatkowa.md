@@ -201,3 +201,28 @@ Uwaga praktyczna dla projektu:
   - `RS` -> koszt `0.0`,
   - `SP` -> koszt z pasującego zakupu ESPP.
   Ten fallback ma charakter pomocniczy i wymaga weryfikacji przez doradcę podatkowego dla konkretnej sytuacji podatnika.
+
+## 13) Mapowanie pozycji formularza PIT-38 wg roku (wzoru)
+
+W projekcie obliczenia są trzymane w polach semantycznych (przychód, koszty, podstawa, podatek, podatek zagraniczny),
+a **numery pozycji** są mapowane przy prezentacji wyniku zależnie od wzoru formularza.
+
+### 13.1 Rok podatkowy 2024 (formularz PIT-38(17))
+
+- C/D: pozycje `22, 23, 26, 27, 28, 29, 30, 31, 32, 33`
+- G: pozycje `45, 46, 47`
+
+Źródło: [PIT-38(17) – wzór formularza (gov.pl)](https://www.gov.pl/attachment/202c884d-c15b-476f-880f-b9c18e9eccc6)
+
+### 13.2 Rok podatkowy 2025 (formularz PIT-38(18))
+
+- C/D: pozycje `22, 23, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35`
+- G: pozycje `46, 47, 48, 49`
+
+Źródło: [PIT-38(18) – wzór formularza (gov.pl)](https://www.gov.pl/attachment/5f1abf4f-4640-4f89-993f-6b6d8f3f84f8)
+
+### 13.3 PIT/ZG w zakresie używanym przez projekt
+
+- Projekt raportuje pola PIT/ZG odpowiadające pozycjom `29` (dochód z art. 30b) i `30` (podatek zapłacony za granicą).
+
+Źródło: [PIT/ZG(8) – wzór formularza (gov.pl)](https://www.gov.pl/attachment/2fca22fa-6980-4ef4-bcb8-4fd056036f0d)

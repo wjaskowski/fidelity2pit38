@@ -5,11 +5,16 @@ import datetime
 import logging
 
 from .core import calculate_pit38, discover_transaction_files
+from .pit38_fields import SUPPORTED_PIT38_FORM_YEARS
 
 
 def main() -> None:
     """CLI entry point: parse arguments and print PIT-38/PIT-ZG results."""
-    default_year = datetime.date.today().year - 1
+    requested_default_year = datetime.date.today().year - 1
+    if requested_default_year in SUPPORTED_PIT38_FORM_YEARS:
+        default_year = requested_default_year
+    else:
+        default_year = max(SUPPORTED_PIT38_FORM_YEARS)
 
     parser = argparse.ArgumentParser(
         description='Compute PIT-38 summary from Fidelity CSV',
@@ -19,8 +24,13 @@ def main() -> None:
                         help='Directory with transaction files')
     parser.add_argument('--method', choices=['fifo', 'custom'], default='fifo',
                         help='Use FIFO or custom summary for matching')
-    parser.add_argument('--year', type=int, default=default_year,
-                        help='Tax year to process')
+    parser.add_argument(
+        '--year',
+        type=int,
+        default=default_year,
+        choices=SUPPORTED_PIT38_FORM_YEARS,
+        help='Tax year to process (supported PIT-38 layouts only)',
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')

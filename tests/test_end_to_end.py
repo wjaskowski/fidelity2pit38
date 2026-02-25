@@ -180,6 +180,41 @@ class TestMainCLI:
         out = capsys.readouterr().out
         assert "PIT-38 for year 2024:" in out
 
+    def test_main_year_2025_uses_new_section_g_positions(
+        self, capsys, monkeypatch, example_data_dir, mock_nbp_read_csv
+    ):
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["fidelity2pit38", "--data-dir", example_data_dir, "--year", "2025"],
+        )
+        with mock_nbp_read_csv:
+            main()
+        out = capsys.readouterr().out
+        assert "PIT-38 for year 2025:" in out
+        assert "Poz. 28 (Dochod)" in out
+        assert "Poz. 29 (Strata)" in out
+        assert "Poz. 30 (Straty z lat ubieglych)" in out
+        assert "Poz. 31 (Podstawa opodatkowania)" in out
+        assert "Poz. 33 (Podatek)" in out
+        assert "Poz. 34 (Podatek zaplacony za granica)" in out
+        assert "Poz. 35 (Podatek nalezny)" in out
+        assert "Poz. 30 (Stawka podatku)" not in out
+        assert "Poz. 46 (Podatek niepobrany przez platnika)" in out
+        assert "Poz. 47 (Podatek 19% od przychodow czesci G)" in out
+        assert "Poz. 48 (Podatek zaplacony za granica)" in out
+        assert "Poz. 49 (Do zaplaty)" in out
+        assert "Poz. 45 (Podatek 19% od przychodow czesci G)" not in out
+
+    def test_main_rejects_unsupported_year(self, monkeypatch):
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["fidelity2pit38", "--data-dir", "data-sample", "--year", "2023"],
+        )
+        with pytest.raises(SystemExit):
+            main()
+
     def test_main_custom_without_summary_errors(
         self, tmp_path, monkeypatch, mock_nbp_read_csv
     ):

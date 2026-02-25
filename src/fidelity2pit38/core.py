@@ -17,7 +17,7 @@ from pandas.tseries.holiday import AbstractHolidayCalendar, GoodFriday, USFedera
 from pandas.tseries.offsets import CustomBusinessDay
 from workalendar.europe import Poland
 
-from .pit38_fields import PIT38Fields
+from .pit38_fields import PIT38Fields, ensure_supported_pit38_form_year
 from .validation import (
     check_custom_acquired_quantities,
     check_custom_buy_match_unambiguous,
@@ -37,6 +37,12 @@ from .validation import (
 SWITCH_DATE = pd.Timestamp('2024-05-28')
 DecimalLike = Union[Decimal, float, int, str]
 TWO_PLACES = Decimal("0.01")
+
+
+def _normalize_zero_float(value: float) -> float:
+    """Convert signed zero (-0.0) to canonical 0.0 for stable display."""
+    return 0.0 if value == 0.0 else value
+
 
 class USSettlementHolidayCalendar(AbstractHolidayCalendar):
     """US settlement calendar: federal holidays plus Good Friday."""
@@ -581,7 +587,7 @@ def compute_section_g_income_components(merged: pd.DataFrame, year: Optional[int
         df['Transaction type'].str.contains('DIVIDEND', na=False)
     )
     foreign_tax = round(-df[foreign_tax_mask]['amount_pln'].sum(), 2)
-    foreign_tax = max(foreign_tax, 0.0)  # avoid -0.00 display; tax withheld is non-negative
+    foreign_tax = _normalize_zero_float(max(foreign_tax, 0.0))
 
     return {
         'section_g_total_income': total_income,
@@ -595,7 +601,8 @@ def compute_dividends_and_tax(merged: pd.DataFrame, year: Optional[int] = None) 
     """Compute Section G income (legacy name) and withholding tax in PLN.
 
     Backward-compatible wrapper over `compute_section_g_income_components`.
-    The first value contains Section G gross income base used for Poz. 45.
+    The first value contains Section G gross income base used for the
+    Section-G 19% tax line (year-dependent form position).
 
     Args:
         merged: Transaction DataFrame with 'Transaction type', 'amount_pln',
@@ -627,7 +634,7 @@ def compute_foreign_tax_capital_gains(merged: pd.DataFrame, year: Optional[int] 
     foreign_tax_mask = df['Transaction type'].str.contains('NON-RESIDENT TAX', na=False)
     dividend_context_mask = df['Transaction type'].str.contains('DIVIDEND|REINVESTMENT', na=False)
     capital_tax = -df[foreign_tax_mask & ~dividend_context_mask]['amount_pln'].sum()
-    capital_tax = round(max(capital_tax, 0.0), 2)
+    capital_tax = _normalize_zero_float(round(max(capital_tax, 0.0), 2))
     return capital_tax
 
 
@@ -703,19 +710,22 @@ def calculate_pit38_fields(
     """Compute PIT-38 and PIT-ZG field values from aggregated totals.
 
     Section C/D (art. 30b) — capital gains from stock sales:
-      Poz. 22 = total proceeds (stock sales only, no dividends)
-      Poz. 23 = total costs
-      Poz. 26 = Poz. 22 - Poz. 23 (income)
-      Poz. 29 = tax base, rounded per Ordynacja art. 63 §1
-      Poz. 30 = 19% rate
-      Poz. 31 = Poz. 29 × 19%
-      Poz. 32 = foreign tax paid on capital gains (credit, capped at Poz. 31)
-      Poz. 33 = max(Poz. 31 - Poz. 32, 0), rounded per art. 63
+      section_c_proceeds = total proceeds (stock sales only, no dividends)
+      section_c_costs = total costs
+      section_c_net = section_c_proceeds - section_c_costs
+      section_d_tax_base = rounded tax base per Ordynacja art. 63 §1
+      section_d_tax_19 = section_d_tax_base × 19%
+      section_d_foreign_tax_credit = foreign tax on capital gains (capped)
+      section_d_due = max(section_d_tax_19 - section_d_foreign_tax_credit, 0), rounded per art. 63
+
+    Note:
+      Position numbers for PIT-38 output differ by form year (e.g. 2024 vs 2025)
+      and are resolved in the presentation layer.
 
     Section G (art. 30a ust.1 pkt 1-5) — zryczałtowane przychody zagraniczne:
-      Poz. 45 = 19% tax on gross Section-G income (rounded to grosze up, per art.63 §1a)
-      Poz. 46 = foreign withholding tax attributable to Section G income
-      Poz. 47 = max(Poz. 45 - Poz. 46, 0) (rounded per art. 63)
+      section_g_tax_19 = 19% tax on gross Section-G income (rounded to grosze up)
+      section_g_foreign_tax = foreign withholding tax attributable to Section G income
+      section_g_due = max(section_g_tax_19 - section_g_foreign_tax, 0), rounded per art. 63
 
     PIT-ZG attachment — foreign income:
       pitzg_poz29 = capital gains from foreign sources
@@ -755,9 +765,12 @@ def calculate_pit38_fields(
         TWO_PLACES,
         rounding=ROUND_HALF_UP,
     )
+    if poz32.is_zero():
+        poz32 = Decimal("0.00")
     tax_final = Decimal(_round_tax(poz31 - poz32))  # Poz. 33
 
     # --- Section G: zryczałtowane przychody (art. 30a ust.1 pkt 1-5) ---
+    # Output position numbers are mapped from these values by tax year.
     poz45 = _round_up_to_grosz(dividends_dec * poz30_rate)
     poz46 = min(foreign_tax_div_dec, poz45).quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
     poz47 = Decimal(_round_tax(poz45 - poz46))
@@ -780,6 +793,7 @@ def calculate_pit38_fields(
         poz47=poz47,
         pitzg_poz29=pitzg_poz29,
         pitzg_poz30=pitzg_poz30,
+        section_g_uncollected_tax=Decimal("0.00"),
         section_g_total_income=dividends_dec.quantize(TWO_PLACES, rounding=ROUND_HALF_UP),
         section_g_equity_dividends=Decimal(section_g_equity_dividends).quantize(TWO_PLACES, rounding=ROUND_HALF_UP),
         section_g_fund_distributions=Decimal(section_g_fund_distributions).quantize(TWO_PLACES, rounding=ROUND_HALF_UP),
@@ -805,6 +819,8 @@ def calculate_pit38(
     Returns:
         PIT38Fields with PIT-38/PIT-ZG values and report metadata.
     """
+    ensure_supported_pit38_form_year(year)
+
     tx = load_transactions(tx_csv)
     tx['settlement_date'] = calculate_settlement_dates(tx['trade_date'], tx['Transaction type'])
     dropped_settlement_rows = int(tx['settlement_date'].isna().sum())
