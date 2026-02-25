@@ -78,7 +78,6 @@ Czesc C/D - Dochody ze zbycia papierow wartosciowych (art. 30b):
   Poz. 33 (Podatek nalezny): 4782.00 PLN
 
 Czesc G - Zryczaltowany podatek (art. 30a ust. 1 pkt 1-5):
-  Podstawa czesci G (lacznie): 52.47 PLN
   Poz. 45 (Podatek 19% od przychodow czesci G): 9.97 PLN
   Poz. 46 (Podatek zaplacony za granica): 7.86 PLN
   Poz. 47 (Do zaplaty): 2.00 PLN
