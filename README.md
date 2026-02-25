@@ -62,15 +62,19 @@ uv run fidelity2pit38 --year 2024            # specific tax year
 uv run fidelity2pit38 --method custom        # use custom lot matching (requires stock-sales*.txt)
 ```
 
-### Example output
+Supported PIT-38 layout years right now: `2024`, `2025` (Section G line numbers differ by year).
+
+### Example output (year 2024 layout)
 
 ```
 PIT-38 for year 2024:
 
 Czesc C/D - Dochody ze zbycia papierow wartosciowych (art. 30b):
-  Poz. 22 (Przychod): 34033.91 PLN
-  Poz. 23 (Koszty uzyskania): 8865.00 PLN
+  Poz. 22 (Inne przychody): 34033.91 PLN
+  Poz. 23 (Koszty uzyskania przychodow): 8865.00 PLN
   Poz. 26 (Dochod): 25168.91 PLN
+  Poz. 27 (Strata): 0.00 PLN
+  Poz. 28 (Straty z lat ubieglych): 0.00 PLN
   Poz. 29 (Podstawa opodatkowania): 25169.00 PLN
   Poz. 30 (Stawka podatku): 19%
   Poz. 31 (Podatek): 4782.11 PLN

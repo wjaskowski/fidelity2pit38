@@ -1,5 +1,7 @@
 from decimal import Decimal
 
+import pytest
+
 from fidelity2pit38 import PIT38Fields, calculate_pit38_fields
 from fidelity2pit38.core import _round_tax
 
@@ -125,6 +127,18 @@ class TestCapitalGainsSection:
         assert result["poz31"] == Decimal("190.00")
         assert result["poz32"] == Decimal("190.00")
         assert result["tax_final"] == Decimal("0")
+
+    def test_foreign_tax_credit_zero_not_negative_zero(self):
+        result = calculate_pit38_fields(
+            total_proceeds=1000.0,
+            total_costs=0.0,
+            total_gain=1000.0,
+            total_dividends=0.0,
+            foreign_tax_dividends=0.0,
+            foreign_tax_capital_gains=-0.0,
+        )
+        assert result["poz32"] == Decimal("0.00")
+        assert not result["poz32"].is_signed()
 
     def test_rounding_tax_base_49_groszy(self):
         """poz29 rounds down when < 50 groszy."""
@@ -257,3 +271,65 @@ class TestPitZG:
         )
         assert result["pitzg_poz29"] == Decimal("0.00")
         assert result["pitzg_poz30"] == Decimal("0.00")
+
+
+class TestPrintedFormLayout:
+    def _sample_fields(self, year):
+        return PIT38Fields(
+            poz22=Decimal("100.00"),
+            poz23=Decimal("40.00"),
+            poz26=Decimal("60.00"),
+            poz29=Decimal("60"),
+            poz30_rate=Decimal("0.19"),
+            poz31=Decimal("11.40"),
+            poz32=Decimal("0.00"),
+            tax_final=Decimal("11"),
+            poz45=Decimal("19.00"),
+            poz46=Decimal("9.92"),
+            poz47=Decimal("9"),
+            pitzg_poz29=Decimal("60.00"),
+            pitzg_poz30=Decimal("0.00"),
+            section_g_uncollected_tax=Decimal("0.00"),
+            year=year,
+        )
+
+    def test_print_uses_2024_section_g_positions(self, capsys):
+        self._sample_fields(year=2024).print()
+        out = capsys.readouterr().out
+
+        assert "Poz. 26 (Dochod)" in out
+        assert "Poz. 27 (Strata)" in out
+        assert "Poz. 28 (Straty z lat ubieglych)" in out
+        assert "Poz. 29 (Podstawa opodatkowania)" in out
+        assert "Poz. 33 (Podatek nalezny)" in out
+        assert "Poz. 45 (Podatek 19% od przychodow czesci G)" in out
+        assert "Poz. 46 (Podatek zaplacony za granica)" in out
+        assert "Poz. 47 (Do zaplaty)" in out
+        assert "Poz. 35 (Podatek nalezny)" not in out
+        assert "Poz. 49 (Do zaplaty)" not in out
+
+    def test_print_uses_2025_section_g_positions(self, capsys):
+        self._sample_fields(year=2025).print()
+        out = capsys.readouterr().out
+
+        assert "Poz. 26 (Przychod - razem)" in out
+        assert "Poz. 27 (Koszty uzyskania - razem)" in out
+        assert "Poz. 28 (Dochod)" in out
+        assert "Poz. 29 (Strata)" in out
+        assert "Poz. 30 (Straty z lat ubieglych)" in out
+        assert "Poz. 31 (Podatek)" not in out
+        assert "Poz. 31 (Podstawa opodatkowania)" in out
+        assert "Poz. 32 (Stawka podatku)" in out
+        assert "Poz. 33 (Podatek)" in out
+        assert "Poz. 34 (Podatek zaplacony za granica)" in out
+        assert "Poz. 35 (Podatek nalezny)" in out
+        assert "Poz. 30 (Stawka podatku)" not in out
+        assert "Poz. 46 (Podatek niepobrany przez platnika)" in out
+        assert "Poz. 47 (Podatek 19% od przychodow czesci G)" in out
+        assert "Poz. 48 (Podatek zaplacony za granica)" in out
+        assert "Poz. 49 (Do zaplaty)" in out
+        assert "Poz. 45 (Podatek 19% od przychodow czesci G)" not in out
+
+    def test_print_raises_for_unsupported_year(self):
+        with pytest.raises(ValueError, match="Supported years: 2024, 2025"):
+            self._sample_fields(year=2026).print()
