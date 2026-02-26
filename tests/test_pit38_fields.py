@@ -330,6 +330,66 @@ class TestPrintedFormLayout:
         assert "Poz. 49 (Do zaplaty)" in out
         assert "Poz. 45 (Podatek 19% od przychodow czesci G)" not in out
 
+    def test_print_shows_legend(self, capsys):
+        self._sample_fields(year=2024).print()
+        out = capsys.readouterr().out
+        assert "<-- enter = fill in the tax form" in out
+
+    def test_print_2024_enter_annotations(self, capsys):
+        """Raw fields get '<-- enter'; auto-calculated fields do not."""
+        self._sample_fields(year=2024).print()
+        lines = capsys.readouterr().out.splitlines()
+
+        def _line(poz_prefix):
+            return next(l for l in lines if poz_prefix in l)
+
+        # Raw fields — must have '<-- enter'
+        assert "<-- enter" in _line("Poz. 22")
+        assert "<-- enter" in _line("Poz. 23")
+        assert "<-- enter" in _line("Poz. 28")
+        assert "<-- enter" in _line("Poz. 32")
+        assert "<-- enter" in _line("Poz. 45")
+        assert "<-- enter" in _line("Poz. 46")
+        # PIT-ZG
+        for l in lines:
+            if "Poz. 29 (Dochod" in l:
+                assert "<-- enter" in l
+            if "Poz. 30 (Podatek zaplacony" in l:
+                assert "<-- enter" in l
+
+        # Auto-calculated fields — must NOT have '<-- enter'
+        assert "<-- enter" not in _line("Poz. 26")
+        assert "<-- enter" not in _line("Poz. 27")
+        assert "<-- enter" not in _line("Poz. 29")
+        assert "<-- enter" not in _line("Poz. 31")
+        assert "<-- enter" not in _line("Poz. 33")
+        assert "<-- enter" not in _line("Poz. 47")
+
+    def test_print_2025_enter_annotations(self, capsys):
+        """Raw fields get '<-- enter'; auto-calculated fields do not."""
+        self._sample_fields(year=2025).print()
+        lines = capsys.readouterr().out.splitlines()
+
+        def _line(poz_prefix):
+            return next(l for l in lines if poz_prefix in l)
+
+        # Raw fields — must have '<-- enter'
+        assert "<-- enter" in _line("Poz. 22")
+        assert "<-- enter" in _line("Poz. 23")
+        assert "<-- enter" in _line("Poz. 30")
+        assert "<-- enter" in _line("Poz. 34")
+        assert "<-- enter" in _line("Poz. 46")
+        assert "<-- enter" in _line("Poz. 47")
+        assert "<-- enter" in _line("Poz. 48")
+
+        # Auto-calculated fields — must NOT have '<-- enter'
+        assert "<-- enter" not in _line("Poz. 26")
+        assert "<-- enter" not in _line("Poz. 27")
+        assert "<-- enter" not in _line("Poz. 28")
+        assert "<-- enter" not in _line("Poz. 29")
+        assert "<-- enter" not in _line("Poz. 35")
+        assert "<-- enter" not in _line("Poz. 49")
+
     def test_print_raises_for_unsupported_year(self):
         with pytest.raises(ValueError, match="Supported years: 2024, 2025"):
             self._sample_fields(year=2026).print()
