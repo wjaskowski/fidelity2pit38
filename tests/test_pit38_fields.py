@@ -202,8 +202,8 @@ class TestDividendSection:
         assert result["poz45"] == Decimal("190.00")
         # Foreign tax capped at Polish tax
         assert result["poz46"] == Decimal("150.00")
-        # 190 - 150 = 40
-        assert result["poz47"] == Decimal("40")
+        # 190 - 150 = 40.00 (rounded to grosze per art. 63 §1a)
+        assert result["poz47"] == Decimal("40.00")
 
     def test_foreign_tax_capped_at_polish_tax(self):
         """Foreign tax credit cannot exceed Polish 19% tax on dividends."""
@@ -218,8 +218,8 @@ class TestDividendSection:
         assert result["poz45"] == Decimal("19.00")
         # Credit capped at 19, not 50
         assert result["poz46"] == Decimal("19.00")
-        # 19 - 19 = 0
-        assert result["poz47"] == Decimal("0")
+        # 19 - 19 = 0.00
+        assert result["poz47"] == Decimal("0.00")
 
     def test_zero_dividends(self):
         result = calculate_pit38_fields(
@@ -231,7 +231,7 @@ class TestDividendSection:
         )
         assert result["poz45"] == Decimal("0.00")
         assert result["poz46"] == Decimal("0.00")
-        assert result["poz47"] == Decimal("0")
+        assert result["poz47"] == Decimal("0.00")
 
     def test_negative_dividends_net(self):
         """Reinvestment can make net dividends negative; tax should be 0."""
@@ -244,7 +244,7 @@ class TestDividendSection:
         )
         # 19% of -50 = -9.50 -> ceil to grosze -> -9.50 -> but poz47 clamped
         # Negative dividends shouldn't produce positive tax
-        assert result["poz47"] == Decimal("0")
+        assert result["poz47"] == Decimal("0.00")
 
 
 class TestPitZG:
@@ -286,7 +286,7 @@ class TestPrintedFormLayout:
             tax_final=Decimal("11"),
             poz45=Decimal("19.00"),
             poz46=Decimal("9.92"),
-            poz47=Decimal("9"),
+            poz47=Decimal("9.08"),
             pitzg_poz29=Decimal("60.00"),
             pitzg_poz30=Decimal("0.00"),
             section_g_uncollected_tax=Decimal("0.00"),

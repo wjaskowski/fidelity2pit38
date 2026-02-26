@@ -342,8 +342,8 @@ class TestDividendsOnlyNoSales:
         assert result["poz45"] == poz45_expected
         # poz46 = min(60.86, 77.09) = 60.86
         assert result["poz46"] == Decimal("60.86")
-        # poz47 = _round_tax(77.09 - 60.86) = _round_tax(16.23) = 16
-        assert result["poz47"] == Decimal("16")
+        # poz47 = _round_up_to_grosz(77.09 - 60.86) = 16.23 (art. 63 §1a)
+        assert result["poz47"] == Decimal("16.23")
 
 
 # ===========================================================================
