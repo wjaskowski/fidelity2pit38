@@ -120,6 +120,10 @@ Poniżej znajdują się **dosłowne krótkie cytaty** istotne dla obliczeń uży
 
 Źródło: [Ordynacja podatkowa, art. 63 § 1a (tekst jednolity)](https://eli.gov.pl/api/acts/DU/2025/111/text/I/D20250111.pdf)
 
+Zastosowanie w projekcie:
+- **Część C/D** (art. 30b): podstawa opodatkowania i podatek należny zaokrąglane do pełnych złotych (art. 63 § 1).
+- **Część G** (art. 30a): podatek zryczałtowany (zarówno kwota 19% jak i „Do zapłaty”) zaokrąglany do pełnych groszy w górę (art. 63 § 1a). Dotyczy to również końcowej kwoty „Do zapłaty” w Części G (poz. 47 / poz. 49 w zależności od roku).
+
 ## 8) Dodatkowy kontekst praktyczny (PIT-38 część C)
 
 > „Uzyskane przychody i poniesione koszty uzyskania tych przychodów wykaż w części C zeznania PIT-38”

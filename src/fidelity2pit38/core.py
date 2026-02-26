@@ -725,7 +725,7 @@ def calculate_pit38_fields(
     Section G (art. 30a ust.1 pkt 1-5) — zryczałtowane przychody zagraniczne:
       section_g_tax_19 = 19% tax on gross Section-G income (rounded to grosze up)
       section_g_foreign_tax = foreign withholding tax attributable to Section G income
-      section_g_due = max(section_g_tax_19 - section_g_foreign_tax, 0), rounded per art. 63
+      section_g_due = max(section_g_tax_19 - section_g_foreign_tax, 0), rounded per art. 63 §1a
 
     PIT-ZG attachment — foreign income:
       pitzg_poz29 = capital gains from foreign sources
@@ -773,7 +773,8 @@ def calculate_pit38_fields(
     # Output position numbers are mapped from these values by tax year.
     poz45 = _round_up_to_grosz(dividends_dec * poz30_rate)
     poz46 = min(foreign_tax_div_dec, poz45).quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
-    poz47 = Decimal(_round_tax(poz45 - poz46))
+    poz47_diff = poz45 - poz46
+    poz47 = _round_up_to_grosz(poz47_diff) if poz47_diff > 0 else Decimal("0.00")
 
     # --- PIT-ZG: foreign income ---
     pitzg_poz29 = gain_dec.quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
