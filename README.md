@@ -91,6 +91,12 @@ PIT-ZG (dochody zagraniczne):
   Poz. 30 (Podatek zaplacony za granica): 0.00 PLN
 ```
 
+## Running tests
+
+```sh
+uv run --group test pytest
+```
+
 ## Documentation
 
 - Tax/legal basis used in this project: [`podstawa-podatkowa.md`](podstawa-podatkowa.md)
