@@ -24,19 +24,18 @@ def _row(label: str, value: str, enter: bool) -> Text:
     """Build a colored row for one PIT-38 field.
 
     Enter rows (fields the user must manually type into the form) are rendered
-    in bright yellow so they stand out.  Auto-calculated rows use the default
-    terminal colour.
+    in green so they stand out.  Auto-calculated rows use a muted grey.
     """
     if enter:
         text = Text()
-        text.append(f"  {label}: ", style="bright_yellow")
-        text.append(value, style="bright_yellow bold")
+        text.append(f"  {label}: ", style="bright_green")
+        text.append(value, style="bright_green bold")
         text.append("  <-- enter", style="bright_green bold")
         return text
     else:
         text = Text()
-        text.append(f"  {label}: ", style="")
-        text.append(value, style="bold")
+        text.append(f"  {label}: ", style="grey62")
+        text.append(value, style="grey62 bold")
         return text
 
 
