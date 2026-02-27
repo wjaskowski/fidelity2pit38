@@ -7,6 +7,7 @@ requires-python = ">=3.10"
 dependencies = [
     "certifi>=2026.1.4",
     "pandas>=2.2.3",
+    "rich>=14.3.3",
     "workalendar>=17.0.0",
 ]
 

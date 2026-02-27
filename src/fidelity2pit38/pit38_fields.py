@@ -1,9 +1,13 @@
-import sys
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Optional
 
+from rich.console import Console
+from rich.text import Text
+
 SUPPORTED_PIT38_FORM_YEARS = (2024, 2025)
+
+_console = Console()
 
 
 def ensure_supported_pit38_form_year(year: Optional[int]) -> None:
@@ -14,6 +18,25 @@ def ensure_supported_pit38_form_year(year: Optional[int]) -> None:
             f"PIT-38 layout mapping for year {year} is not implemented. "
             f"Supported years: {supported}."
         )
+
+
+def _row(label: str, value: str, enter: bool) -> Text:
+    """Build a colored row for one PIT-38 field.
+
+    Enter rows (fields the user must manually type into the form) are rendered
+    in green so they stand out.  Auto-calculated rows use a muted grey.
+    """
+    if enter:
+        text = Text()
+        text.append(f"  {label}: ", style="bright_green")
+        text.append(value, style="bright_green bold")
+        text.append("  <-- enter", style="bright_green bold")
+        return text
+    else:
+        text = Text()
+        text.append(f"  {label}: ", style="grey62")
+        text.append(value, style="grey62 bold")
+        return text
 
 
 @dataclass(frozen=True)
@@ -41,57 +64,68 @@ class PIT38Fields:
     def __getitem__(self, key: str):
         return getattr(self, key)
 
-    # Suffix for fields the user enters in the tax form (raw/independent).
-    # Fields without this suffix are typically auto-calculated.
-    _ENTER = "  <-- enter"
-
     def print(self) -> None:
-        """Print PIT-38/PIT-ZG fields in CLI-friendly format."""
+        """Print PIT-38/PIT-ZG fields in CLI-friendly, coloured format."""
         ensure_supported_pit38_form_year(self.year)
         capital_income = max(self.poz26, Decimal("0.00")).quantize(Decimal("0.01"))
         capital_loss = max(-self.poz26, Decimal("0.00")).quantize(Decimal("0.01"))
-        e = self._ENTER
 
-        print(f"\n\nPIT-38 for year {self.year}:")
-        print("(<-- enter = fill in the tax form;"
-              " remaining fields are typically auto-calculated)")
-        print("\nCzesc C/D - Dochody ze zbycia papierow wartosciowych (art. 30b):")
+        _console.print()
+        _console.print()
+
+        title = Text()
+        title.append("PIT-38 for year ", style="bold cyan")
+        title.append(str(self.year), style="bold cyan underline")
+        _console.print(title)
+
+        legend = Text()
+        legend.append("(", style="dim")
+        legend.append("<-- enter", style="bright_green bold")
+        legend.append(" = fill in the tax form; remaining fields are typically auto-calculated)", style="dim")
+        _console.print(legend)
+
+        _console.print()
+        _console.print(Text("Czesc C/D - Dochody ze zbycia papierow wartosciowych (art. 30b):", style="bold blue"))
+
         if self.year == 2024:
-            print(f"  Poz. 22 (Inne przychody): {self.poz22:.2f} PLN{e}")
-            print(f"  Poz. 23 (Koszty uzyskania przychodow): {self.poz23:.2f} PLN{e}")
-            print(f"  Poz. 26 (Dochod): {capital_income:.2f} PLN")
-            print(f"  Poz. 27 (Strata): {capital_loss:.2f} PLN")
-            print(f"  Poz. 28 (Straty z lat ubieglych): 0.00 PLN{e}")
-            print(f"  Poz. 29 (Podstawa opodatkowania): {self.poz29}.00 PLN")
-            print(f"  Poz. 30 (Stawka podatku): {int(self.poz30_rate * 100)}%")
-            print(f"  Poz. 31 (Podatek): {self.poz31:.2f} PLN")
-            print(f"  Poz. 32 (Podatek zaplacony za granica): {self.poz32:.2f} PLN{e}")
-            print(f"  Poz. 33 (Podatek nalezny): {self.tax_final:.2f} PLN")
+            _console.print(_row("Poz. 22 (Inne przychody)", f"{self.poz22:.2f} PLN", enter=True))
+            _console.print(_row("Poz. 23 (Koszty uzyskania przychodow)", f"{self.poz23:.2f} PLN", enter=True))
+            _console.print(_row("Poz. 26 (Dochod)", f"{capital_income:.2f} PLN", enter=False))
+            _console.print(_row("Poz. 27 (Strata)", f"{capital_loss:.2f} PLN", enter=False))
+            _console.print(_row("Poz. 28 (Straty z lat ubieglych)", "0.00 PLN", enter=True))
+            _console.print(_row("Poz. 29 (Podstawa opodatkowania)", f"{self.poz29}.00 PLN", enter=False))
+            _console.print(_row("Poz. 30 (Stawka podatku)", f"{int(self.poz30_rate * 100)}%", enter=False))
+            _console.print(_row("Poz. 31 (Podatek)", f"{self.poz31:.2f} PLN", enter=False))
+            _console.print(_row("Poz. 32 (Podatek zaplacony za granica)", f"{self.poz32:.2f} PLN", enter=True))
+            _console.print(_row("Poz. 33 (Podatek nalezny)", f"{self.tax_final:.2f} PLN", enter=False))
         else:
-            print(f"  Poz. 22 (Inne przychody): {self.poz22:.2f} PLN{e}")
-            print(f"  Poz. 23 (Koszty uzyskania przychodow): {self.poz23:.2f} PLN{e}")
-            print(f"  Poz. 26 (Przychod - razem): {self.poz22:.2f} PLN")
-            print(f"  Poz. 27 (Koszty uzyskania - razem): {self.poz23:.2f} PLN")
-            print(f"  Poz. 28 (Dochod): {capital_income:.2f} PLN")
-            print(f"  Poz. 29 (Strata): {capital_loss:.2f} PLN")
-            print(f"  Poz. 30 (Straty z lat ubieglych): 0.00 PLN{e}")
-            print(f"  Poz. 31 (Podstawa opodatkowania): {self.poz29}.00 PLN")
-            print(f"  Poz. 32 (Stawka podatku): {int(self.poz30_rate * 100)}%")
-            print(f"  Poz. 33 (Podatek): {self.poz31:.2f} PLN")
-            print(f"  Poz. 34 (Podatek zaplacony za granica): {self.poz32:.2f} PLN{e}")
-            print(f"  Poz. 35 (Podatek nalezny): {self.tax_final:.2f} PLN")
+            _console.print(_row("Poz. 22 (Inne przychody)", f"{self.poz22:.2f} PLN", enter=True))
+            _console.print(_row("Poz. 23 (Koszty uzyskania przychodow)", f"{self.poz23:.2f} PLN", enter=True))
+            _console.print(_row("Poz. 26 (Przychod - razem)", f"{self.poz22:.2f} PLN", enter=False))
+            _console.print(_row("Poz. 27 (Koszty uzyskania - razem)", f"{self.poz23:.2f} PLN", enter=False))
+            _console.print(_row("Poz. 28 (Dochod)", f"{capital_income:.2f} PLN", enter=False))
+            _console.print(_row("Poz. 29 (Strata)", f"{capital_loss:.2f} PLN", enter=False))
+            _console.print(_row("Poz. 30 (Straty z lat ubieglych)", "0.00 PLN", enter=True))
+            _console.print(_row("Poz. 31 (Podstawa opodatkowania)", f"{self.poz29}.00 PLN", enter=False))
+            _console.print(_row("Poz. 32 (Stawka podatku)", f"{int(self.poz30_rate * 100)}%", enter=False))
+            _console.print(_row("Poz. 33 (Podatek)", f"{self.poz31:.2f} PLN", enter=False))
+            _console.print(_row("Poz. 34 (Podatek zaplacony za granica)", f"{self.poz32:.2f} PLN", enter=True))
+            _console.print(_row("Poz. 35 (Podatek nalezny)", f"{self.tax_final:.2f} PLN", enter=False))
 
-        print("\nCzesc G - Zryczaltowany podatek (art. 30a ust. 1 pkt 1-5):")
+        _console.print()
+        _console.print(Text("Czesc G - Zryczaltowany podatek (art. 30a ust. 1 pkt 1-5):", style="bold blue"))
         if self.year == 2024:
-            print(f"  Poz. 45 (Podatek 19% od przychodow czesci G): {self.poz45:.2f} PLN{e}")
-            print(f"  Poz. 46 (Podatek zaplacony za granica): {self.poz46:.2f} PLN{e}")
-            print(f"  Poz. 47 (Do zaplaty): {self.poz47:.2f} PLN")
+            _console.print(_row("Poz. 45 (Podatek 19% od przychodow czesci G)", f"{self.poz45:.2f} PLN", enter=True))
+            _console.print(_row("Poz. 46 (Podatek zaplacony za granica)", f"{self.poz46:.2f} PLN", enter=True))
+            _console.print(_row("Poz. 47 (Do zaplaty)", f"{self.poz47:.2f} PLN", enter=False))
         else:
-            print(f"  Poz. 46 (Podatek niepobrany przez platnika): {self.section_g_uncollected_tax:.2f} PLN{e}")
-            print(f"  Poz. 47 (Podatek 19% od przychodow czesci G): {self.poz45:.2f} PLN{e}")
-            print(f"  Poz. 48 (Podatek zaplacony za granica): {self.poz46:.2f} PLN{e}")
-            print(f"  Poz. 49 (Do zaplaty): {self.poz47:.2f} PLN")
+            _console.print(_row("Poz. 46 (Podatek niepobrany przez platnika)", f"{self.section_g_uncollected_tax:.2f} PLN", enter=True))
+            _console.print(_row("Poz. 47 (Podatek 19% od przychodow czesci G)", f"{self.poz45:.2f} PLN", enter=True))
+            _console.print(_row("Poz. 48 (Podatek zaplacony za granica)", f"{self.poz46:.2f} PLN", enter=True))
+            _console.print(_row("Poz. 49 (Do zaplaty)", f"{self.poz47:.2f} PLN", enter=False))
 
-        print("\nPIT-ZG (dochody zagraniczne):")
-        print(f"  Poz. 29 (Dochod z art. 30b ust.5 i 5b): {self.pitzg_poz29:.2f} PLN{e}")
-        print(f"  Poz. 30 (Podatek zaplacony za granica): {self.pitzg_poz30:.2f} PLN{e}")
+        _console.print()
+        _console.print(Text("PIT-ZG (dochody zagraniczne):", style="bold blue"))
+        _console.print(_row("Poz. 29 (Dochod z art. 30b ust.5 i 5b)", f"{self.pitzg_poz29:.2f} PLN", enter=True))
+        _console.print(_row("Poz. 30 (Podatek zaplacony za granica)", f"{self.pitzg_poz30:.2f} PLN", enter=True))
+        _console.print()
