@@ -66,6 +66,11 @@ Supported PIT-38 layout years right now: `2024`, `2025` (Section G line numbers 
 
 ### Example output (year 2024 layout)
 
+The output uses color to make it easier to read:
+- **Section headers** are shown in bold blue
+- **Fields you must enter manually** (`<-- enter`) are highlighted in bright yellow with a green marker
+- **Auto-calculated fields** are shown in the default terminal color
+
 ```
 PIT-38 for year 2024:
 (<-- enter = fill in the tax form; remaining fields are typically auto-calculated)
