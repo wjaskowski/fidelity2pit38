@@ -66,35 +66,34 @@ Supported PIT-38 layout years right now: `2024`, `2025` (Section G line numbers 
 
 ### Example output (year 2024 layout)
 
-The output uses color to make it easier to read:
-- **Section headers** are shown in bold blue
-- **Fields you must enter manually** (`<-- enter`) are highlighted in bright yellow with a green marker
-- **Auto-calculated fields** are shown in the default terminal color
+The output uses color: section headers in blue, fields you must enter manually highlighted in yellow with a green `<-- enter` marker, auto-calculated fields in default color.
 
-```
+In the example below, green lines (`+`) are the fields you need to fill in:
+
+```diff
 PIT-38 for year 2024:
 (<-- enter = fill in the tax form; remaining fields are typically auto-calculated)
 
-Czesc C/D - Dochody ze zbycia papierow wartosciowych (art. 30b):
-  Poz. 22 (Inne przychody): 34033.91 PLN  <-- enter
-  Poz. 23 (Koszty uzyskania przychodow): 8865.00 PLN  <-- enter
-  Poz. 26 (Dochod): 25168.91 PLN
-  Poz. 27 (Strata): 0.00 PLN
-  Poz. 28 (Straty z lat ubieglych): 0.00 PLN  <-- enter
-  Poz. 29 (Podstawa opodatkowania): 25169.00 PLN
-  Poz. 30 (Stawka podatku): 19%
-  Poz. 31 (Podatek): 4782.11 PLN
-  Poz. 32 (Podatek zaplacony za granica): 0.00 PLN  <-- enter
-  Poz. 33 (Podatek nalezny): 4782.00 PLN
+ Czesc C/D - Dochody ze zbycia papierow wartosciowych (art. 30b):
++  Poz. 22 (Inne przychody): 34033.91 PLN  <-- enter
++  Poz. 23 (Koszty uzyskania przychodow): 8865.00 PLN  <-- enter
+   Poz. 26 (Dochod): 25168.91 PLN
+   Poz. 27 (Strata): 0.00 PLN
++  Poz. 28 (Straty z lat ubieglych): 0.00 PLN  <-- enter
+   Poz. 29 (Podstawa opodatkowania): 25169.00 PLN
+   Poz. 30 (Stawka podatku): 19%
+   Poz. 31 (Podatek): 4782.11 PLN
++  Poz. 32 (Podatek zaplacony za granica): 0.00 PLN  <-- enter
+   Poz. 33 (Podatek nalezny): 4782.00 PLN
 
-Czesc G - Zryczaltowany podatek (art. 30a ust. 1 pkt 1-5):
-  Poz. 45 (Podatek 19% od przychodow czesci G): 9.97 PLN  <-- enter
-  Poz. 46 (Podatek zaplacony za granica): 7.86 PLN  <-- enter
-  Poz. 47 (Do zaplaty): 2.11 PLN
+ Czesc G - Zryczaltowany podatek (art. 30a ust. 1 pkt 1-5):
++  Poz. 45 (Podatek 19% od przychodow czesci G): 9.97 PLN  <-- enter
++  Poz. 46 (Podatek zaplacony za granica): 7.86 PLN  <-- enter
+   Poz. 47 (Do zaplaty): 2.11 PLN
 
-PIT-ZG (dochody zagraniczne):
-  Poz. 29 (Dochod z art. 30b ust.5 i 5b): 25168.91 PLN  <-- enter
-  Poz. 30 (Podatek zaplacony za granica): 0.00 PLN  <-- enter
+ PIT-ZG (dochody zagraniczne):
++  Poz. 29 (Dochod z art. 30b ust.5 i 5b): 25168.91 PLN  <-- enter
++  Poz. 30 (Podatek zaplacony za granica): 0.00 PLN  <-- enter
 ```
 
 ## Running tests
