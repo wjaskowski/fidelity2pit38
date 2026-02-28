@@ -134,15 +134,18 @@ Zastosowanie w projekcie:
 
 Źródło: [podatki.gov.pl – Zbycie akcji](https://www.podatki.gov.pl/podatki-osobiste/pit/informacje-podstawowe/co-jest-opodatkowane/zbycie-akcji/)
 
-## 9) FIFO – przepis, który pojawia się w ustawie
+## 9) FIFO – przepis dla papierów wartościowych (art. 24 ust. 10)
 
-> „przychód został osiągnięty z papierów wartościowych nabytych najwcześniej (FIFO).”
+> „Jeżeli podatnik dokonuje odpłatnego zbycia papierów wartościowych nabytych po różnych cenach i nie jest możliwe określenie ceny nabycia zbywanych papierów wartościowych, przy ustalaniu dochodu z takiego zbycia stosuje się zasadę, że każdorazowo zbycie dotyczy kolejno papierów wartościowych nabytych najwcześniej. Zasadę, o której mowa w zdaniu pierwszym, stosuje się odrębnie dla każdego rachunku papierów wartościowych.”
 
-Źródło: [Ustawa PIT, art. 30a ust. 4 (tekst jednolity)](https://eli.gov.pl/api/acts/DU/2025/163/text/I/D20250163.pdf)
+Źródło: [Ustawa PIT, art. 24 ust. 10 (tekst jednolity)](https://eli.gov.pl/api/acts/DU/2025/163/text/I/D20250163.pdf)
+
+Uwaga: art. 30a ust. 4 zawiera analogiczną zasadę FIFO, ale wyłącznie dla tytułów uczestnictwa w **funduszach kapitałowych**, a nie dla papierów wartościowych.
 
 Uwaga praktyczna dla projektu:
 - Dla rozliczenia sprzedaży akcji w PIT-38 stosujemy FIFO jako metodę techniczną przypisania kosztu do sprzedanych lotów.
 - W projekcie FIFO jest liczone per instrument (`Investment name`), aby nie mieszać kosztów między różnymi papierami.
+- FIFO ma zastosowanie **tylko wtedy, gdy nie można określić ceny nabycia zbywanych papierów**. Gdy identyfikacja konkretnych lotów jest możliwa, stosuje się rzeczywisty koszt nabycia (zob. pkt 14).
 
 ## 10) Dzień przewalutowania, T+1/T+2 i kalendarz dni roboczych (PL vs US)
 
@@ -230,3 +233,22 @@ a **numery pozycji** są mapowane przy prezentacji wyniku zależnie od wzoru for
 - Projekt raportuje pola PIT/ZG odpowiadające pozycjom `29` (dochód z art. 30b) i `30` (podatek zapłacony za granicą).
 
 Źródło: [PIT/ZG(8) – wzór formularza (gov.pl)](https://www.gov.pl/attachment/2fca22fa-6980-4ef4-bcb8-4fd056036f0d)
+
+## 14) Metoda identyfikacji konkretnych lotów (`--method custom`)
+
+Art. 24 ust. 10 stosuje metodę FIFO wyłącznie wtedy, gdy **nie jest możliwe określenie ceny nabycia** zbywanych papierów. Gdy podatnik dysponuje dokumentacją pozwalającą przypisać sprzedane papiery do konkretnej partii zakupowej (lotu), powinien zastosować rzeczywisty koszt nabycia wynikający z art. 30b ust. 2 pkt 1.
+
+> „różnica między sumą przychodów uzyskanych z tytułu odpłatnego zbycia papierów wartościowych a kosztami uzyskania przychodów"
+
+Źródło: [Ustawa PIT, art. 30b ust. 2 pkt 1 (tekst jednolity)](https://eli.gov.pl/api/acts/DU/2025/163/text/I/D20250163.pdf)
+
+Stanowisko organów skarbowych (interpretacja indywidualna Dyrektora KIS z dnia 4 stycznia 2017 r., sygn. 1462-IPPB2.4511.675.2016.2.MK):
+
+> „ustawodawca wskazał metodę FIFO jako zasadę postępowania jedynie w przypadku braku możliwości identyfikacji nabywanych i zbywanych papierów wartościowych. Jeżeli identyfikacja jest możliwa, dochód do opodatkowania z tytułu odpłatnego zbycia papierów wartościowych winien być ustalony zgodnie z art. 30b ust. 2 pkt 1 ustawy – tylko taki sposób postępowania daje gwarancję ustalenia dochodu do opodatkowania w prawidłowej wysokości."
+
+Stanowisko potwierdzone w późniejszej interpretacji (Dyrektor KIS, maj 2025, sygn. 0112-KDWL.4011.2.2025.1.TW): Dyrektor KIS uznał za prawidłowe stanowisko podatnika, że przy zbyciu akcji możliwych do identyfikacji (imiennych lub o udokumentowanej dacie nabycia) koszt nabycia ustala się na podstawie rzeczywistych wydatków na nabycie konkretnych akcji, bez stosowania zasady FIFO.
+
+Zastosowanie w projekcie (`--method custom`):
+- Dla każdej sprzedaży identyfikowany jest konkretny lot na podstawie pliku „Stock Sales Summary" z Fidelity, zawierającego datę nabycia i źródło akcji (`Stock source`).
+- Koszt nabycia pochodzi z kolumny `Cost basis` (USD) przeliczonej na PLN po kursie NBP z dnia nabycia, albo – gdy brak danych – z kwoty transakcji zakupowej.
+- Metoda `custom` wymaga posiadania pełnej dokumentacji Fidelity potwierdzającej przypisanie każdego zbycia do konkretnego lotu; jej brak wyklucza stosowanie tej metody.
