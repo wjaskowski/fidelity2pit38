@@ -16,7 +16,7 @@ If you have a Fidelity Stock Plan account (RSU, ESPP) and need to file Polish ta
 
 For each year you need, download a transaction history CSV:
 
-> Fidelity -> **Stock Plan Accounts** -> **Activity** -> **Custom Date** -> Jan-01-20XX to Dec-31-20XX -> **Export** -> `Transaction history 20XX.csv`
+> Fidelity (Your Landing Page) -> **STOCK PLAN ACCOUNT** -> **Activity** -> **Custom Date** -> Jan-01-20XX to Dec-31-20XX -> **Export** -> `Transaction history 20XX.csv`
 
 ### Place files in a data directory
 
