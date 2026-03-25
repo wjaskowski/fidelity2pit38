@@ -23,7 +23,6 @@ from .validation import (
     check_custom_buy_match_unambiguous,
     check_custom_buy_record_exists,
     check_custom_sale_date_quantities,
-    check_custom_sale_match_unambiguous,
     check_custom_sale_record_exists,
     check_custom_summary_rows_valid,
     check_exchange_rates_present,
@@ -413,16 +412,17 @@ def process_custom(
     custom['Date sold']     = pd.to_datetime(custom['Date sold or transferred'], format='%b-%d-%Y', errors='coerce')
     custom['Date acquired'] = pd.to_datetime(custom['Date acquired'],              format='%b-%d-%Y', errors='coerce')
     custom['Quantity']      = pd.to_numeric(custom['Quantity'],                    errors='coerce')
-    if 'Cost basis' in custom.columns:
-        cost_basis_raw = custom['Cost basis'].astype(str).str.strip()
-        paren_negative = cost_basis_raw.str.match(r'^\(.*\)$', na=False)
-        cost_basis_clean = cost_basis_raw.str.replace(r'[\s$,()]', '', regex=True)
-        custom['Cost basis USD'] = pd.to_numeric(cost_basis_clean, errors='coerce')
-        custom.loc[paren_negative, 'Cost basis USD'] = (
-            -custom.loc[paren_negative, 'Cost basis USD'].abs()
-        )
-    else:
-        custom['Cost basis USD'] = pd.NA
+    for usd_col, parsed_col in [('Cost basis', 'Cost basis USD'), ('Proceeds', 'Proceeds USD')]:
+        if usd_col in custom.columns:
+            raw = custom[usd_col].astype(str).str.strip()
+            paren_negative = raw.str.match(r'^\(.*\)$', na=False)
+            clean = raw.str.replace(r'[\s$,()]', '', regex=True)
+            custom[parsed_col] = pd.to_numeric(clean, errors='coerce')
+            custom.loc[paren_negative, parsed_col] = (
+                -custom.loc[paren_negative, parsed_col].abs()
+            )
+        else:
+            custom[parsed_col] = pd.NA
 
     custom['Date sold norm'] = custom['Date sold'].dt.normalize()
     if year is not None:
@@ -446,6 +446,7 @@ def process_custom(
         qty       = row['Quantity']
         source    = row.get('Stock source')
         reported_cost_basis_usd = row.get('Cost basis USD')
+        reported_proceeds_usd = row.get('Proceeds USD')
         custom_symbol = None
         for symbol_col in ('Symbol', 'Ticker', 'Security Symbol'):
             candidate = row.get(symbol_col)
@@ -476,11 +477,19 @@ def process_custom(
         sale_tx = _filter_by_identifier(sale_tx, custom_symbol, custom_investment_name, label='sale', date_value=sale_date)
         if not check_custom_sale_record_exists(sale_tx, sale_date):
             continue
-        check_custom_sale_match_unambiguous(sale_date, len(sale_tx))
         sale = sale_tx.iloc[0]
         sale_investment = sale.get('Investment name') if 'Investment name' in sale.index else None
-        price_per = sale['amount_pln'] / abs(sale['shares']) if sale['shares'] else 0
-        proceeds   = round(qty * price_per, 2)
+        sell_rate = sale['rate']
+        if pd.notna(reported_proceeds_usd) and reported_proceeds_usd > 0:
+            proceeds = round(float(reported_proceeds_usd) * float(sell_rate), 2)
+        elif len(sale_tx) > 1:
+            total_pln = sale_tx['amount_pln'].sum()
+            total_shares = sale_tx['shares'].abs().sum()
+            price_per = total_pln / total_shares if total_shares else 0
+            proceeds = round(qty * price_per, 2)
+        else:
+            price_per = sale['amount_pln'] / abs(sale['shares']) if sale['shares'] else 0
+            proceeds = round(qty * price_per, 2)
 
         # determine cost
         # RS (RSU) lots: cost is always 0.0 under Polish art. 30b.  The 'Cost basis'
