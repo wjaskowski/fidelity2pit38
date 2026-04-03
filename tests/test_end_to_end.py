@@ -132,7 +132,7 @@ class TestMainCLI:
         with mock_nbp_read_csv:
             main()
         out = capsys.readouterr().out
-        assert "PIT-38 for year 2024:" in out
+        assert "PIT-38 for year 2024" in out
         assert "Czesc C/D" in out
         assert "Poz. 22" in out
         assert "Poz. 33" in out
@@ -164,7 +164,7 @@ class TestMainCLI:
         with mock_nbp_read_csv:
             main()
         out = capsys.readouterr().out
-        assert "PIT-38 for year 2024:" in out
+        assert "PIT-38 for year 2024" in out
         assert "PIT-ZG" in out
 
     def test_main_year_flag(
@@ -178,7 +178,7 @@ class TestMainCLI:
         with mock_nbp_read_csv:
             main()
         out = capsys.readouterr().out
-        assert "PIT-38 for year 2024:" in out
+        assert "PIT-38 for year 2024" in out
 
     def test_main_year_2025_uses_new_section_g_positions(
         self, capsys, monkeypatch, example_data_dir, mock_nbp_read_csv
@@ -191,7 +191,7 @@ class TestMainCLI:
         with mock_nbp_read_csv:
             main()
         out = capsys.readouterr().out
-        assert "PIT-38 for year 2025:" in out
+        assert "PIT-38 for year 2025" in out
         assert "Poz. 28 (Dochod)" in out
         assert "Poz. 29 (Strata)" in out
         assert "Poz. 30 (Straty z lat ubieglych)" in out

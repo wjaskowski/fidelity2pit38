@@ -101,6 +101,26 @@ def test_section_g_breakdown_fund_vs_equity():
     assert comp["section_g_total_income"] == pytest.approx(46.0)
 
 
+def test_adj_non_resident_tax_refund_cancels_dividend_withholding():
+    """ADJ NON-RESIDENT TAX KKR WITH-HOLDING refund should net out against the withholding.
+
+    Fidelity records dividend withholding as 'NON-RESIDENT TAX DIVIDEND RECEIVED' (negative)
+    and its refund as 'ADJ NON-RESIDENT TAX KKR WITH-HOLDING PROCESSING' (positive).
+    Net tax paid should be 0 when the amounts cancel out.
+    """
+    merged = pd.DataFrame(
+        {
+            "Transaction type": [
+                "NON-RESIDENT TAX DIVIDEND RECEIVED",
+                "ADJ NON-RESIDENT TAX KKR WITH-HOLDING PROCESSING",
+            ],
+            "amount_pln": [-6.93, 6.93],
+        }
+    )
+    dividends, foreign_tax = compute_dividends_and_tax(merged)
+    assert foreign_tax == pytest.approx(0.0)
+
+
 def test_section_g_breakdown_in_example_is_fund_only(merged_example):
     comp = compute_section_g_income_components(merged_example)
     assert comp["section_g_total_income"] == pytest.approx(52.47, abs=0.01)
