@@ -584,10 +584,12 @@ def compute_section_g_income_components(merged: pd.DataFrame, year: Optional[int
 
     foreign_tax_mask = (
         df['Transaction type'].str.contains('NON-RESIDENT TAX', na=False) &
-        df['Transaction type'].str.contains('DIVIDEND', na=False)
+        (
+            df['Transaction type'].str.contains('DIVIDEND', na=False) |
+            df['Transaction type'].str.startswith('ADJ NON-RESIDENT TAX', na=False)
+        )
     )
-    foreign_tax = round(-df[foreign_tax_mask]['amount_pln'].sum(), 2)
-    foreign_tax = _normalize_zero_float(max(foreign_tax, 0.0))
+    foreign_tax = _normalize_zero_float(round(-df[foreign_tax_mask]['amount_pln'].sum(), 2))
 
     return {
         'section_g_total_income': total_income,
@@ -632,9 +634,11 @@ def compute_foreign_tax_capital_gains(merged: pd.DataFrame, year: Optional[int] 
     if year is not None:
         df = merged[merged['settlement_date'].dt.year == year]
     foreign_tax_mask = df['Transaction type'].str.contains('NON-RESIDENT TAX', na=False)
-    dividend_context_mask = df['Transaction type'].str.contains('DIVIDEND|REINVESTMENT', na=False)
-    capital_tax = -df[foreign_tax_mask & ~dividend_context_mask]['amount_pln'].sum()
-    capital_tax = _normalize_zero_float(round(max(capital_tax, 0.0), 2))
+    dividend_context_mask = (
+        df['Transaction type'].str.contains('DIVIDEND|REINVESTMENT', na=False) |
+        df['Transaction type'].str.startswith('ADJ NON-RESIDENT TAX', na=False)
+    )
+    capital_tax = _normalize_zero_float(round(-df[foreign_tax_mask & ~dividend_context_mask]['amount_pln'].sum(), 2))
     return capital_tax
 
 
