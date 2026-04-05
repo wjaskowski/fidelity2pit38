@@ -1,6 +1,7 @@
 import pandas as pd
 import pytest
 
+
 from fidelity2pit38 import process_fifo
 
 
@@ -151,3 +152,45 @@ def test_matches_fifo_by_investment_name():
     assert proceeds == pytest.approx(1200.0, abs=0.01)
     assert costs == pytest.approx(1000.0, abs=0.01)
     assert gain == pytest.approx(200.0, abs=0.01)
+
+
+def test_year_param_must_not_discard_previous_years_sells():
+    merged = pd.DataFrame(
+        [
+            {
+                "Transaction type": "YOU BOUGHT",
+                "Investment name": "AAA",
+                "shares": 10.0,
+                "amount_pln": -2000.0,
+                "settlement_date": pd.Timestamp("2024-01-05"),
+            },
+            {
+                "Transaction type": "YOU SOLD",
+                "Investment name": "AAA",
+                "shares": -10.0,
+                "amount_pln": 2000.0,
+                "settlement_date": pd.Timestamp("2024-02-05"),
+            },
+                        {
+                "Transaction type": "YOU BOUGHT",
+                "Investment name": "AAA",
+                "shares": 10.0,
+                "amount_pln": -1000.0,
+                "settlement_date": pd.Timestamp("2025-01-05"),
+            },
+            {
+                "Transaction type": "YOU SOLD",
+                "Investment name": "AAA",
+                "shares": -10.0,
+                "amount_pln": 1000.0,
+                "settlement_date": pd.Timestamp("2025-02-05"),
+            },
+        ]
+    )
+    
+    proceeds_2025, costs_2025, gain_2025 = process_fifo(merged, year=2025)
+    assert proceeds_2025 == 1000
+    assert costs_2025 == 1000
+    assert gain_2025 == 0
+
+
