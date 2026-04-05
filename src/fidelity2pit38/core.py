@@ -282,8 +282,6 @@ def process_fifo(merged: pd.DataFrame, year: Optional[int] = None) -> Tuple[floa
     """
     buys = merged[merged['Transaction type'].str.contains('YOU BOUGHT', na=False)].sort_values('settlement_date').copy()
     sells = merged[merged['Transaction type'].str.contains('YOU SOLD', na=False)].sort_values('settlement_date').copy()
-    if year is not None:
-        sells = sells[sells['settlement_date'].dt.year == year]
     buys['remaining'] = buys['shares']
     allocs = []
     for _, sale in sells.iterrows():
@@ -302,12 +300,13 @@ def process_fifo(merged: pd.DataFrame, year: Optional[int] = None) -> Tuple[floa
             cost_per = (-lot['amount_pln']) / lot['shares'] if lot['shares'] else 0
             allocs.append({
                 'proceeds': round(match * price_per, 2),
-                'cost':     round(match * cost_per,   2)
+                'cost':     round(match * cost_per,   2),
+                'include_in_total': (year is None or year == sale['settlement_date'].year)
             })
             buys.at[idx, 'remaining'] -= match
             qty -= match
-    total_proceeds = sum(a['proceeds'] for a in allocs)
-    total_costs    = sum(a['cost']     for a in allocs)
+    total_proceeds = sum(a['proceeds'] for a in allocs if a['include_in_total'])
+    total_costs    = sum(a['cost']     for a in allocs if a['include_in_total'])
     total_gain     = round(total_proceeds - total_costs, 2)
     logging.info("FIFO: matched %d lots; Gain PLN: %.2f", len(allocs), total_gain)
     return total_proceeds, total_costs, total_gain
