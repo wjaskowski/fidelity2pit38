@@ -29,7 +29,6 @@ from fidelity2pit38 import (
     compute_foreign_tax_capital_gains,
     compute_section_g_income_components,
     merge_with_rates,
-    process_custom,
     process_fifo,
 )
 
@@ -280,7 +279,6 @@ class TestFifoMultipleBuysOneSell:
         # lot2: proceeds = 5 * 812 = 4060.00;  cost = 5 * (5842.50/10) = 2921.25
         # total_proceeds = 12180.00; total_costs = 3950.00 + 2921.25 = 6871.25
         expected_proceeds = round(3000.0 * 4.0600, 2)
-        price_per = expected_proceeds / 15.0
         cost1 = round(10 * (1000.0 * 3.9500 / 10), 2)
         cost2 = round(5 * (1500.0 * 3.8950 / 10), 2)
         expected_costs = cost1 + cost2

@@ -1,11 +1,9 @@
 import sys
 from decimal import Decimal
-from unittest.mock import patch
 
 import pandas as pd
 import pytest
 
-import fidelity2pit38
 from fidelity2pit38 import (
     calculate_pit38,
     calculate_pit38_fields,

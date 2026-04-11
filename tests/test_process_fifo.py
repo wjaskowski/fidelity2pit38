@@ -79,7 +79,6 @@ def test_fifo_order_by_settlement_date():
     )
     proceeds, costs, gain = process_fifo(merged)
     # FIFO: 19 from ESPP (cost=5944.98), 4 from RSU (cost=0)
-    espp_proceeds = 23 * (11860.44 / 23)  # same price per share
     espp_cost = 19 * (5944.98 / 19)
     rsu_cost = 4 * 0.0
     assert costs == pytest.approx(espp_cost + rsu_cost, rel=1e-2)

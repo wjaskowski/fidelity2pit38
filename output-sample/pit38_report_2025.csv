@@ -1,0 +1,37 @@
+CAPITAL GAINS (Section C/D - art. 30b)
+Sale Date,Buy Date,Security,Qty,Proceeds USD/share,Proceeds USD,Sale NBP Rate Date,Sale NBP Rate,Proceeds PLN,Cost USD/share,Cost USD,Buy NBP Rate Date,Buy NBP Rate,Cost PLN,Gain/Loss PLN,Source
+2025-02-19,2024-09-16,ACME TECHNOLOGY INC. COMMON STOCK,25.0,135.0000,3375.00,2025-02-18,3.9729,13408.54,52.0000,1300.00,2024-09-13,3.8659,5025.67,8382.87,ESPP
+2025-10-14,2024-09-16,ACME TECHNOLOGY INC. COMMON STOCK,55.0,120.0000,6600.00,2025-10-13,3.6763,24263.58,52.0000,2860.00,2024-09-13,3.8659,11056.47,13207.11,ESPP
+2025-10-14,2024-12-16,ACME TECHNOLOGY INC. COMMON STOCK,10.0,120.0000,1200.00,2025-10-13,3.6763,4411.56,0.0000,0.00,2024-12-13,4.0738,-0.00,4411.56,RSU
+2025-11-13,2024-12-16,ACME TECHNOLOGY INC. COMMON STOCK,15.0,115.0000,1725.00,2025-11-12,3.6570,6308.32,0.0000,0.00,2024-12-13,4.0738,-0.00,6308.32,RSU
+TOTAL,,,105.0,,12900.00,,,48392.00,,4160.00,,,16082.14,32309.86,
+
+DIVIDENDS & FOREIGN TAX (Section G - art. 30a)
+Date,Security,Type,Amount USD,NBP Rate Date,NBP Rate,Amount PLN,Foreign Tax USD,Foreign Tax PLN
+2025-03-31,FIDELITY GOVERNMENT CASH RESERVES,fund,6.20,2025-03-28,3.8817,24.07,0.93,3.61
+2025-12-31,FIDELITY GOVERNMENT CASH RESERVES,fund,8.70,2025-12-30,3.5936,31.26,1.31,4.71
+TOTAL,,,14.90,,,55.33,2.24,8.32
+
+PIT-38 SUMMARY (year 2025)
+Field,Description,Value PLN
+poz22,Poz. 22 - Inne przychody (przychody ze zbycia),48392.00
+poz23,Poz. 23 - Koszty uzyskania przychodow,16082.14
+poz26,Poz. 26 - Przychod - razem,48392.00
+poz27,Poz. 27 - Koszty uzyskania - razem,16082.14
+poz28,Poz. 28 - Dochod,32309.86
+poz29,Poz. 29 - Strata,0.00
+poz30,Poz. 30 - Straty z lat ubieglych,0.00
+poz31,Poz. 31 - Podstawa opodatkowania,32310
+poz32,Poz. 32 - Stawka podatku,19%
+poz33,Poz. 33 - Podatek,6138.90
+poz34,Poz. 34 - Podatek zaplacony za granica (art. 30b),0.00
+poz35,Poz. 35 - Podatek nalezny,6139.00
+poz46,Poz. 46 - Podatek niepobrany przez platnika,0.00
+poz47,Poz. 47 - Podatek 19% od przychodow czesci G,10.52
+poz48,Poz. 48 - Podatek zaplacony za granica (Section G),8.32
+poz49,Poz. 49 - Do zaplaty (Section G),2.20
+pitzg29,PIT-ZG Poz. 29 - Dochod z art. 30b ust.5 i 5b,32309.86
+pitzg30,PIT-ZG Poz. 30 - Podatek zaplacony za granica,0.00
+diag_g,Section G - Total income (diagnostics),55.33
+diag_eq,Section G - Equity dividends (diagnostics),0.00
+diag_fd,Section G - Fund distributions (diagnostics),55.33
