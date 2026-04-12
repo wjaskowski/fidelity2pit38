@@ -10,7 +10,7 @@ from datetime import date
 from decimal import Decimal
 from typing import List, Optional, Tuple
 
-from .pit38_fields import PIT38Fields
+from .pit38_fields import PIT38Fields, ensure_supported_pit38_form_year
 
 
 @dataclass
@@ -375,6 +375,29 @@ def render_html(data: ReportData) -> str:
 </html>"""
 
 
+_CONSOLE_SECTION_TITLES = [
+    "Czesc C/D - Dochody ze zbycia papierow wartosciowych (art. 30b)",
+    "Czesc G - Zryczaltowany podatek (art. 30a ust. 1 pkt 1-5)",
+    "PIT-ZG (dochody zagraniczne)",
+]
+
+
+def render_console(data: ReportData) -> str:
+    """Render the PIT-38 summary as a plain-text string for terminal output."""
+    lines = [
+        f"PIT-38 for year {data.year}",
+        "(<-- enter = fill in the tax form; remaining fields are typically auto-calculated)",
+    ]
+    for (_, rows), title in zip(_pit38_summary_sections(data.pit38), _CONSOLE_SECTION_TITLES):
+        lines.append("")
+        lines.append(f"{title}:")
+        for desc, val, is_raw in rows:
+            unit = "" if val.endswith("%") else " PLN"
+            suffix = "  <-- enter" if is_raw else ""
+            lines.append(f"  {desc}: {val}{unit}{suffix}")
+    return "\n".join(lines)
+
+
 def write_reports(data: ReportData, output_dir: str, open_browser: bool = False) -> None:
     """Write pit38_report_{year}.csv and .html to output_dir, creating it if needed."""
     os.makedirs(output_dir, exist_ok=True)
@@ -399,6 +422,7 @@ _PitRow = Tuple[str, str, bool]
 
 def _pit38_summary_sections(pit38: PIT38Fields) -> List[Tuple[str, List[_PitRow]]]:
     """Return PIT-38 summary rows grouped by form section, with enter/auto annotations."""
+    ensure_supported_pit38_form_year(pit38.year)
     capital_income = max(pit38.poz26, Decimal("0.00"))
     capital_loss   = max(-pit38.poz26, Decimal("0.00"))
 

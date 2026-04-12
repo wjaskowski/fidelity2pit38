@@ -122,10 +122,11 @@ class TestE2ECustom:
 
 class TestMainCLI:
     def test_main_fifo(
-        self, capsys, monkeypatch, example_data_dir, mock_nbp_read_csv
+        self, tmp_path, capsys, monkeypatch, example_data_dir, mock_nbp_read_csv
     ):
         monkeypatch.setattr(
-            sys, "argv", ["fidelity2pit38", "--data-dir", example_data_dir, "--method", "fifo", "--year", "2024"]
+            sys, "argv", ["fidelity2pit38", "--data-dir", example_data_dir, "--method", "fifo", "--year", "2024",
+                          "--output", str(tmp_path), "--no-open"]
         )
         with mock_nbp_read_csv:
             main()
@@ -141,6 +142,7 @@ class TestMainCLI:
 
     def test_main_custom(
         self,
+        tmp_path,
         capsys,
         monkeypatch,
         example_data_dir,
@@ -149,15 +151,8 @@ class TestMainCLI:
         monkeypatch.setattr(
             sys,
             "argv",
-            [
-                "fidelity2pit38",
-                "--data-dir",
-                example_data_dir,
-                "--method",
-                "custom",
-                "--year",
-                "2024",
-            ],
+            ["fidelity2pit38", "--data-dir", example_data_dir, "--method", "custom", "--year", "2024",
+             "--output", str(tmp_path), "--no-open"],
         )
         with mock_nbp_read_csv:
             main()
@@ -166,12 +161,13 @@ class TestMainCLI:
         assert "PIT-ZG" in out
 
     def test_main_year_flag(
-        self, capsys, monkeypatch, example_data_dir, mock_nbp_read_csv
+        self, tmp_path, capsys, monkeypatch, example_data_dir, mock_nbp_read_csv
     ):
         monkeypatch.setattr(
             sys,
             "argv",
-            ["fidelity2pit38", "--data-dir", example_data_dir, "--year", "2024"],
+            ["fidelity2pit38", "--data-dir", example_data_dir, "--year", "2024",
+             "--output", str(tmp_path), "--no-open"],
         )
         with mock_nbp_read_csv:
             main()
@@ -179,12 +175,13 @@ class TestMainCLI:
         assert "PIT-38 for year 2024" in out
 
     def test_main_year_2025_uses_new_section_g_positions(
-        self, capsys, monkeypatch, example_data_dir, mock_nbp_read_csv
+        self, tmp_path, capsys, monkeypatch, example_data_dir, mock_nbp_read_csv
     ):
         monkeypatch.setattr(
             sys,
             "argv",
-            ["fidelity2pit38", "--data-dir", example_data_dir, "--year", "2025"],
+            ["fidelity2pit38", "--data-dir", example_data_dir, "--year", "2025",
+             "--output", str(tmp_path), "--no-open"],
         )
         with mock_nbp_read_csv:
             main()
@@ -245,7 +242,8 @@ class TestPipelineWarnings:
         )
         caplog.set_level("WARNING")
         with mock_nbp_read_csv:
-            calculate_pit38(tx_csv=str(csv_path), year=2024, method="fifo")
+            calculate_pit38(tx_csv=str(csv_path), year=2024, method="fifo",
+                            report_dir=str(tmp_path))
         assert "Dropping 1 transaction row(s) with missing settlement_date" in caplog.text
 
 
