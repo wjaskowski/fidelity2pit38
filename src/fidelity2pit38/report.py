@@ -55,6 +55,7 @@ class ReportData:
     capital_gains: List[CapitalGainAlloc]
     dividends: List[DividendRow]
     pit38: PIT38Fields
+    method: str = ""
 
 
 # ── Rendering ──────────────────────────────────────────────────────────────────
@@ -69,13 +70,18 @@ def render_csv(data: ReportData) -> str:
     buf = io.StringIO()
     w = csv.writer(buf)
 
+    w.writerow([f"PIT-38 Report {data.year}"])
+    if data.method:
+        w.writerow([f"Method: {data.method}"])
+    w.writerow([])
+
     # ── Section 1: Capital Gains ───────────────────────────────────────
     w.writerow(["CAPITAL GAINS (Section C/D - art. 30b)"])
     w.writerow([
-        "Sale Date", "Buy Date", "Security", "Qty",
-        "Proceeds USD/share", "Proceeds USD", "Sale NBP Rate Date", "Sale NBP Rate", "Proceeds PLN",
-        "Cost USD/share", "Cost USD", "Buy NBP Rate Date", "Buy NBP Rate", "Cost PLN",
-        "Gain/Loss PLN", "Source",
+        "Date Sold", "Date Acquired", "Security", "Shares",
+        "Proceeds/share ($)", "Proceeds ($)", "Sale NBP Rate Date", "Sale NBP Rate", "Proceeds (PLN)",
+        "Cost/share ($)", "Cost ($)", "Buy NBP Rate Date", "Buy NBP Rate", "Cost (PLN)",
+        "Gain/Loss (PLN)", "Acquisition",
     ])
     for a in data.capital_gains:
         w.writerow([
@@ -113,9 +119,9 @@ def render_csv(data: ReportData) -> str:
     # ── Section 2: Dividends & Foreign Tax ────────────────────────────
     w.writerow(["DIVIDENDS & FOREIGN TAX (Section G - art. 30a)"])
     w.writerow([
-        "Date", "Security", "Type",
-        "Amount USD", "NBP Rate Date", "NBP Rate", "Amount PLN",
-        "Foreign Tax USD", "Foreign Tax PLN",
+        "Payment Date", "Security", "Type",
+        "Amount ($)", "NBP Rate Date", "NBP Rate", "Amount (PLN)",
+        "Foreign Tax ($)", "Foreign Tax (PLN)",
     ])
     for d in data.dividends:
         w.writerow([
@@ -158,8 +164,11 @@ body {
 }
 .wrap { max-width: 1600px; margin: 0 auto; }
 h1 {
-    font-size: 1.5rem; font-weight: 700; margin-bottom: 2rem;
+    font-size: 1.5rem; font-weight: 700; margin-bottom: .5rem;
     padding-bottom: .75rem; border-bottom: 3px solid #3b82f6;
+}
+p.method {
+    font-size: .85rem; color: #64748b; margin-bottom: 2rem;
 }
 .card {
     background: #fff; border-radius: 8px;
@@ -206,7 +215,14 @@ tr.section-hdr td {
     color: #475569; border-top: 2px solid #e2e8f0; padding-top: .6rem;
 }
 tr.derived td { color: #94a3b8; }
-.table-note { font-size: .75rem; color: #64748b; padding: .5rem 1rem .75rem; }
+tr.derived { cursor: help; }
+#tt {
+    position: fixed; z-index: 9999; pointer-events: none; display: none;
+    background: #1e293b; color: #f8fafc; font-size: .75rem;
+    padding: .35rem .65rem; border-radius: 4px; white-space: nowrap;
+    box-shadow: 0 2px 6px rgba(0,0,0,.25);
+}
+.table-note { font-size: .75rem; color: #64748b; margin-top: .75rem; }
 footer { margin-top: 1rem; font-size: .75rem; color: #94a3b8; text-align: right; }
 """
 
@@ -296,13 +312,17 @@ def render_html(data: ReportData) -> str:
     )
 
     # ── PIT-38 summary ─────────────────────────────────────────────────
+    _derived_tooltip = 'data-tooltip="Auto-calculated by the tax form — no manual entry needed"'
     pit_sections_html = []
     for section_title, rows in _pit38_summary_sections(data.pit38):
         section_rows_parts = []
         for desc, val, is_raw in rows:
-            cls = '' if is_raw else ' class="derived"'
+            if is_raw:
+                attrs = ''
+            else:
+                attrs = f' class="derived" {_derived_tooltip}'
             section_rows_parts.append(
-                f'<tr{cls}><td class="l">{e(desc)}</td><td>{e(val)}</td></tr>'
+                f'<tr{attrs}><td class="l">{e(desc)}</td><td>{e(val)}</td></tr>'
             )
         pit_sections_html.append(
             f'<tr class="section-hdr"><td colspan="2">{e(section_title)}</td></tr>\n'
@@ -323,18 +343,19 @@ def render_html(data: ReportData) -> str:
 <body>
 <div class="wrap">
 <h1>PIT-38 Report {data.year}</h1>
+{"<p class='method'>Method: " + data.method + "</p>" if data.method else ""}
 
 <div class="card">
 <div class="card-title">Capital Gains &mdash; Section C/D (art. 30b)</div>
 <div class="scroll"><table>
 <thead><tr>
-<th class="l">Sale Date</th><th class="l">Buy Date</th><th class="l">Security</th>
-<th>Qty</th>
-<th>Proceeds USD/share</th><th>Proceeds USD</th>
-<th class="l">Sale NBP Rate Date</th><th>Sale NBP Rate</th><th>Proceeds PLN</th>
-<th>Cost USD/share</th><th>Cost USD</th>
-<th class="l">Buy NBP Rate Date</th><th>Buy NBP Rate</th><th>Cost PLN</th>
-<th>Gain/Loss PLN</th><th>Source</th>
+<th class="l">Date Sold</th><th class="l">Date Acquired</th><th class="l">Security</th>
+<th>Shares</th>
+<th>Proceeds/share ($)</th><th>Proceeds ($)</th>
+<th class="l">Sale NBP Rate Date</th><th>Sale NBP Rate</th><th>Proceeds (PLN)</th>
+<th>Cost/share ($)</th><th>Cost ($)</th>
+<th class="l">Buy NBP Rate Date</th><th>Buy NBP Rate</th><th>Cost (PLN)</th>
+<th>Gain/Loss (PLN)</th><th>Acquisition</th>
 </tr></thead>
 <tbody>
 {cg_rows}
@@ -347,9 +368,9 @@ def render_html(data: ReportData) -> str:
 <div class="card-title">Dividends &amp; Foreign Tax &mdash; Section G (art. 30a)</div>
 <div class="scroll"><table>
 <thead><tr>
-<th class="l">Date</th><th class="l">Security</th><th>Type</th>
-<th>Amount USD</th><th class="l">NBP Rate Date</th><th>NBP Rate</th><th>Amount PLN</th>
-<th>Foreign Tax USD</th><th>Foreign Tax PLN</th>
+<th class="l">Payment Date</th><th class="l">Security</th><th>Type</th>
+<th>Amount ($)</th><th class="l">NBP Rate Date</th><th>NBP Rate</th><th>Amount (PLN)</th>
+<th>Foreign Tax ($)</th><th>Foreign Tax (PLN)</th>
 </tr></thead>
 <tbody>
 {div_rows}
@@ -366,11 +387,32 @@ def render_html(data: ReportData) -> str:
 {pit_html}
 </tbody>
 </table></div>
-<p class="table-note">Values shown in grey are auto-calculated by the tax form and do not need to be entered manually. Values in normal text must be entered into the form.</p>
 </div>
+<p class="table-note">Values shown in grey are auto-calculated by the tax form and do not need to be entered manually. Values in normal text must be entered into the form.</p>
 
 <footer>Generated {generated}</footer>
 </div>
+<div id="tt"></div>
+<script>
+(function(){{
+    var tt = document.getElementById('tt');
+    document.querySelectorAll('tr[data-tooltip]').forEach(function(row) {{
+        row.addEventListener('mouseenter', function(e) {{
+            tt.textContent = row.dataset.tooltip;
+            tt.style.left = (e.clientX + 14) + 'px';
+            tt.style.top  = (e.clientY + 14) + 'px';
+            tt.style.display = 'block';
+        }});
+        row.addEventListener('mousemove', function(e) {{
+            tt.style.left = (e.clientX + 14) + 'px';
+            tt.style.top  = (e.clientY + 14) + 'px';
+        }});
+        row.addEventListener('mouseleave', function() {{
+            tt.style.display = 'none';
+        }});
+    }});
+}})();
+</script>
 </body>
 </html>"""
 
@@ -382,19 +424,31 @@ _CONSOLE_SECTION_TITLES = [
 ]
 
 
-def render_console(data: ReportData) -> str:
-    """Render the PIT-38 summary as a plain-text string for terminal output."""
+def render_console(data: ReportData, diff_format: bool = False) -> str:
+    """Render the PIT-38 summary as a plain-text string for terminal output.
+
+    When diff_format=True the output uses git-diff-style prefixes: ``+`` for
+    fields that must be entered manually and `` `` for auto-calculated ones.
+    This format is used for the README example block.
+    """
+    header = f"PIT-38 for year {data.year}"
+    if data.method:
+        header += f"  |  Method: {data.method}"
+    if diff_format:
+        header += ":"
     lines = [
-        f"PIT-38 for year {data.year}",
+        header,
         "(<-- enter = fill in the tax form; remaining fields are typically auto-calculated)",
     ]
     for (_, rows), title in zip(_pit38_summary_sections(data.pit38), _CONSOLE_SECTION_TITLES):
         lines.append("")
-        lines.append(f"{title}:")
+        section_line = f"{title}:"
+        lines.append(f" {section_line}" if diff_format else section_line)
         for desc, val, is_raw in rows:
             unit = "" if val.endswith("%") else " PLN"
             suffix = "  <-- enter" if is_raw else ""
-            lines.append(f"  {desc}: {val}{unit}{suffix}")
+            line = f"  {desc}: {val}{unit}{suffix}"
+            lines.append(f"+{line}" if (diff_format and is_raw) else f" {line}" if diff_format else line)
     return "\n".join(lines)
 
 

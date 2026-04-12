@@ -6,4 +6,7 @@ uv run pytest -q
 
 uv run fidelity2pit38 --data-dir data-sample --year 2024 --output output-sample --no-open > /dev/null 2>&1
 uv run fidelity2pit38 --data-dir data-sample --year 2025 --output output-sample --no-open > /dev/null 2>&1
-git add output-sample/
+git add -f output-sample/
+
+uv run python scripts/update_readme.py
+git add README.md

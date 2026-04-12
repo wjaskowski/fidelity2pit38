@@ -11,8 +11,11 @@ body {
 }
 .wrap { max-width: 1600px; margin: 0 auto; }
 h1 {
-    font-size: 1.5rem; font-weight: 700; margin-bottom: 2rem;
+    font-size: 1.5rem; font-weight: 700; margin-bottom: .5rem;
     padding-bottom: .75rem; border-bottom: 3px solid #3b82f6;
+}
+p.method {
+    font-size: .85rem; color: #64748b; margin-bottom: 2rem;
 }
 .card {
     background: #fff; border-radius: 8px;
@@ -59,25 +62,33 @@ tr.section-hdr td {
     color: #475569; border-top: 2px solid #e2e8f0; padding-top: .6rem;
 }
 tr.derived td { color: #94a3b8; }
-.table-note { font-size: .75rem; color: #64748b; padding: .5rem 1rem .75rem; }
+tr.derived { cursor: help; }
+#tt {
+    position: fixed; z-index: 9999; pointer-events: none; display: none;
+    background: #1e293b; color: #f8fafc; font-size: .75rem;
+    padding: .35rem .65rem; border-radius: 4px; white-space: nowrap;
+    box-shadow: 0 2px 6px rgba(0,0,0,.25);
+}
+.table-note { font-size: .75rem; color: #64748b; margin-top: .75rem; }
 footer { margin-top: 1rem; font-size: .75rem; color: #94a3b8; text-align: right; }
 </style>
 </head>
 <body>
 <div class="wrap">
 <h1>PIT-38 Report 2024</h1>
+<p class='method'>Method: FIFO</p>
 
 <div class="card">
 <div class="card-title">Capital Gains &mdash; Section C/D (art. 30b)</div>
 <div class="scroll"><table>
 <thead><tr>
-<th class="l">Sale Date</th><th class="l">Buy Date</th><th class="l">Security</th>
-<th>Qty</th>
-<th>Proceeds USD/share</th><th>Proceeds USD</th>
-<th class="l">Sale NBP Rate Date</th><th>Sale NBP Rate</th><th>Proceeds PLN</th>
-<th>Cost USD/share</th><th>Cost USD</th>
-<th class="l">Buy NBP Rate Date</th><th>Buy NBP Rate</th><th>Cost PLN</th>
-<th>Gain/Loss PLN</th><th>Source</th>
+<th class="l">Date Sold</th><th class="l">Date Acquired</th><th class="l">Security</th>
+<th>Shares</th>
+<th>Proceeds/share ($)</th><th>Proceeds ($)</th>
+<th class="l">Sale NBP Rate Date</th><th>Sale NBP Rate</th><th>Proceeds (PLN)</th>
+<th>Cost/share ($)</th><th>Cost ($)</th>
+<th class="l">Buy NBP Rate Date</th><th>Buy NBP Rate</th><th>Cost (PLN)</th>
+<th>Gain/Loss (PLN)</th><th>Acquisition</th>
 </tr></thead>
 <tbody>
 <tr><td class="l">2024-06-17</td><td class="l">2024-03-19</td><td class="l">ACME TECHNOLOGY INC. COMMON STOCK</td><td>20.0</td><td>155.0000</td><td>3100.00</td><td class="l">2024-06-14</td><td>4.0760</td><td>12635.60</td><td>45.0000</td><td>900.00</td><td class="l">2024-03-18</td><td>3.9528</td><td>3557.52</td><td class="pos">9078.08</td><td class="c"><span class="badge badge-espp">ESPP</span></td></tr>
@@ -91,9 +102,9 @@ footer { margin-top: 1rem; font-size: .75rem; color: #94a3b8; text-align: right;
 <div class="card-title">Dividends &amp; Foreign Tax &mdash; Section G (art. 30a)</div>
 <div class="scroll"><table>
 <thead><tr>
-<th class="l">Date</th><th class="l">Security</th><th>Type</th>
-<th>Amount USD</th><th class="l">NBP Rate Date</th><th>NBP Rate</th><th>Amount PLN</th>
-<th>Foreign Tax USD</th><th>Foreign Tax PLN</th>
+<th class="l">Payment Date</th><th class="l">Security</th><th>Type</th>
+<th>Amount ($)</th><th class="l">NBP Rate Date</th><th>NBP Rate</th><th>Amount (PLN)</th>
+<th>Foreign Tax ($)</th><th>Foreign Tax (PLN)</th>
 </tr></thead>
 <tbody>
 <tr><td class="l">2024-03-29</td><td class="l">FIDELITY GOVERNMENT CASH RESERVES</td><td class="c"><span class="badge badge-fund">fund</span></td><td>4.20</td><td class="l">2024-03-28</td><td>4.0081</td><td>16.83</td><td>0.63</td><td>2.53</td></tr>
@@ -111,27 +122,48 @@ footer { margin-top: 1rem; font-size: .75rem; color: #94a3b8; text-align: right;
 <tr class="section-hdr"><td colspan="2">Section C/D – Dochody ze zbycia papierow wartosciowych (art. 30b)</td></tr>
 <tr><td class="l">Poz. 22 (Inne przychody)</td><td>34300.51</td></tr>
 <tr><td class="l">Poz. 23 (Koszty uzyskania przychodow)</td><td>8893.80</td></tr>
-<tr class="derived"><td class="l">Poz. 26 (Dochod)</td><td>25406.71</td></tr>
-<tr class="derived"><td class="l">Poz. 27 (Strata)</td><td>0.00</td></tr>
+<tr class="derived" data-tooltip="Auto-calculated by the tax form — no manual entry needed"><td class="l">Poz. 26 (Dochod)</td><td>25406.71</td></tr>
+<tr class="derived" data-tooltip="Auto-calculated by the tax form — no manual entry needed"><td class="l">Poz. 27 (Strata)</td><td>0.00</td></tr>
 <tr><td class="l">Poz. 28 (Straty z lat ubieglych)</td><td>0.00</td></tr>
-<tr class="derived"><td class="l">Poz. 29 (Podstawa opodatkowania)</td><td>25407.00</td></tr>
-<tr class="derived"><td class="l">Poz. 30 (Stawka podatku)</td><td>19%</td></tr>
-<tr class="derived"><td class="l">Poz. 31 (Podatek)</td><td>4827.33</td></tr>
+<tr class="derived" data-tooltip="Auto-calculated by the tax form — no manual entry needed"><td class="l">Poz. 29 (Podstawa opodatkowania)</td><td>25407.00</td></tr>
+<tr class="derived" data-tooltip="Auto-calculated by the tax form — no manual entry needed"><td class="l">Poz. 30 (Stawka podatku)</td><td>19%</td></tr>
+<tr class="derived" data-tooltip="Auto-calculated by the tax form — no manual entry needed"><td class="l">Poz. 31 (Podatek)</td><td>4827.33</td></tr>
 <tr><td class="l">Poz. 32 (Podatek zaplacony za granica)</td><td>0.00</td></tr>
-<tr class="derived"><td class="l">Poz. 33 (Podatek nalezny)</td><td>4827.00</td></tr>
+<tr class="derived" data-tooltip="Auto-calculated by the tax form — no manual entry needed"><td class="l">Poz. 33 (Podatek nalezny)</td><td>4827.00</td></tr>
 <tr class="section-hdr"><td colspan="2">Section G – Zryczaltowany podatek (art. 30a ust. 1 pkt 1-5)</td></tr>
 <tr><td class="l">Poz. 45 (Podatek 19% od przychodow czesci G)</td><td>10.01</td></tr>
 <tr><td class="l">Poz. 46 (Podatek zaplacony za granica)</td><td>7.89</td></tr>
-<tr class="derived"><td class="l">Poz. 47 (Do zaplaty)</td><td>2.12</td></tr>
+<tr class="derived" data-tooltip="Auto-calculated by the tax form — no manual entry needed"><td class="l">Poz. 47 (Do zaplaty)</td><td>2.12</td></tr>
 <tr class="section-hdr"><td colspan="2">PIT-ZG – Dochody zagraniczne</td></tr>
 <tr><td class="l">Poz. 29 (Dochod z art. 30b ust.5 i 5b)</td><td>25406.71</td></tr>
 <tr><td class="l">Poz. 30 (Podatek zaplacony za granica)</td><td>0.00</td></tr>
 </tbody>
 </table></div>
-<p class="table-note">Values shown in grey are auto-calculated by the tax form and do not need to be entered manually. Values in normal text must be entered into the form.</p>
 </div>
+<p class="table-note">Values shown in grey are auto-calculated by the tax form and do not need to be entered manually. Values in normal text must be entered into the form.</p>
 
 <footer>Generated 2026-04-12</footer>
 </div>
+<div id="tt"></div>
+<script>
+(function(){
+    var tt = document.getElementById('tt');
+    document.querySelectorAll('tr[data-tooltip]').forEach(function(row) {
+        row.addEventListener('mouseenter', function(e) {
+            tt.textContent = row.dataset.tooltip;
+            tt.style.left = (e.clientX + 14) + 'px';
+            tt.style.top  = (e.clientY + 14) + 'px';
+            tt.style.display = 'block';
+        });
+        row.addEventListener('mousemove', function(e) {
+            tt.style.left = (e.clientX + 14) + 'px';
+            tt.style.top  = (e.clientY + 14) + 'px';
+        });
+        row.addEventListener('mouseleave', function() {
+            tt.style.display = 'none';
+        });
+    });
+})();
+</script>
 </body>
 </html>

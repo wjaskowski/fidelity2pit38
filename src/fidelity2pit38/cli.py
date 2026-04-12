@@ -66,4 +66,4 @@ def main() -> None:
         report_dir=args.output,
         open_browser=not args.no_open,
     )
-    result.print()
+    result.print(method=args.method)

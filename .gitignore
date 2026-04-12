@@ -177,4 +177,9 @@ cython_debug/
 wj-data/
 output/
 
+# Override any global *.csv ignore so repo-owned CSVs are always tracked
+!tests/fixtures/*.csv
+!output-sample/*.csv
+!data-sample/*.csv
+
 .claude
