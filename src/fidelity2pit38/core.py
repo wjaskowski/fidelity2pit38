@@ -948,6 +948,7 @@ def calculate_pit38(
     method: str = 'fifo',
     custom_summary: Optional[List[str]] = None,
     report_dir: str = 'output',
+    open_browser: bool = False,
 ) -> PIT38Fields:
     """Run the full PIT-38 calculation pipeline.
 
@@ -1033,6 +1034,6 @@ def calculate_pit38(
     )
 
     div_rows = _collect_dividend_rows(merged, year=year)
-    write_reports(ReportData(year=year, capital_gains=allocs, dividends=div_rows, pit38=pit38_fields), report_dir)
+    write_reports(ReportData(year=year, capital_gains=allocs, dividends=div_rows, pit38=pit38_fields), report_dir, open_browser=open_browser)
 
     return pit38_fields
