@@ -1,6 +1,4 @@
-import os
 
-import pytest
 
 from fidelity2pit38 import build_nbp_rate_urls, discover_transaction_files
 

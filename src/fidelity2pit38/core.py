@@ -18,6 +18,7 @@ from pandas.tseries.offsets import CustomBusinessDay
 from workalendar.europe import Poland
 
 from .pit38_fields import PIT38Fields, ensure_supported_pit38_form_year
+from .report import CapitalGainAlloc, DividendRow, ReportData, write_reports
 from .validation import (
     check_custom_acquired_quantities,
     check_custom_buy_match_unambiguous,
@@ -257,6 +258,66 @@ def _open_buy_lots(buys: pd.DataFrame, sale_investment: Optional[str]) -> pd.Dat
     return open_lots
 
 
+def _match_fifo_lots(merged: pd.DataFrame, year: Optional[int] = None) -> List[CapitalGainAlloc]:
+    """Core FIFO matching — returns per-lot detail for process_fifo and reporting.
+
+    All sells are iterated (not filtered by year) so that earlier years consume
+    buy lots in the correct order. Only allocs for sells settling in `year` are
+    returned (or all, when year is None).
+    """
+    buys = merged[merged['Transaction type'].str.contains('YOU BOUGHT', na=False)].sort_values('settlement_date').copy()
+    sells = merged[merged['Transaction type'].str.contains('YOU SOLD', na=False)].sort_values('settlement_date').copy()
+    buys['remaining'] = buys['shares']
+    allocs: List[CapitalGainAlloc] = []
+    for _, sale in sells.iterrows():
+        in_target_year = (year is None or sale['settlement_date'].year == year)
+        sale_investment = sale.get('Investment name') if 'Investment name' in sale.index else None
+        sale_qty = abs(sale['shares'])
+        qty = sale_qty
+        price_per_pln = sale['amount_pln'] / sale_qty if sale_qty else 0
+        price_per_usd = float(sale.get('amount_usd') or 0) / sale_qty if sale_qty else 0
+        available_qty = _open_buy_lots(buys, sale_investment)['remaining'].sum()
+        check_fifo_sale_not_oversell(sale['settlement_date'], qty, available_qty)
+        while qty > 0:
+            open_lots = _open_buy_lots(buys, sale_investment)
+            if not check_fifo_open_lots_available(sale['settlement_date'], qty, has_open_lots=not open_lots.empty):
+                break
+            idx = open_lots.index.min()
+            lot = buys.loc[idx]
+            match = min(qty, lot['remaining'])
+            cost_per_pln = (-lot['amount_pln']) / lot['shares'] if lot['shares'] else 0
+            cost_per_usd = float(-(lot.get('amount_usd') or 0)) / lot['shares'] if lot['shares'] else 0
+            if in_target_year:
+                tx_type = str(lot.get('Transaction type', ''))
+                source = 'RSU' if 'RSU' in tx_type.upper() else ('ESPP' if 'ESPP' in tx_type.upper() else 'MARKET')
+                buy_rate = lot.get('rate')
+                buy_rate_date = lot.get('rate_date')
+                buy_settlement = lot.get('settlement_date')
+                sale_rate = sale.get('rate')
+                sale_rate_date = sale.get('rate_date')
+                allocs.append(CapitalGainAlloc(
+                    sale_settlement_date=sale['settlement_date'].date(),
+                    buy_settlement_date=buy_settlement.date() if pd.notna(buy_settlement) else None,
+                    security=str(sale_investment) if pd.notna(sale_investment) else '',
+                    quantity=match,
+                    proceeds_usd_per_share=price_per_usd,
+                    proceeds_usd=round(match * price_per_usd, 2),
+                    sale_nbp_rate_date=sale_rate_date.date() if pd.notna(sale_rate_date) else None,
+                    sale_nbp_rate=float(sale_rate) if pd.notna(sale_rate) else 0.0,
+                    proceeds_pln=round(match * price_per_pln, 2),
+                    cost_usd_per_share=cost_per_usd,
+                    cost_usd=round(match * cost_per_usd, 2),
+                    buy_nbp_rate_date=buy_rate_date.date() if pd.notna(buy_rate_date) else None,
+                    buy_nbp_rate=float(buy_rate) if pd.notna(buy_rate) else None,
+                    cost_pln=round(match * cost_per_pln, 2),
+                    gain_pln=round(match * price_per_pln - match * cost_per_pln, 2),
+                    source=source,
+                ))
+            buys.at[idx, 'remaining'] -= match
+            qty -= match
+    return allocs
+
+
 def process_fifo(merged: pd.DataFrame, year: Optional[int] = None) -> Tuple[float, float, float]:
     """Match stock sales to purchases using FIFO (First-In, First-Out) ordering.
 
@@ -280,33 +341,9 @@ def process_fifo(merged: pd.DataFrame, year: Optional[int] = None) -> Tuple[floa
         Tuple of (total_proceeds, total_costs, total_gain) in PLN, where
         total_gain = total_proceeds - total_costs.
     """
-    buys = merged[merged['Transaction type'].str.contains('YOU BOUGHT', na=False)].sort_values('settlement_date').copy()
-    sells = merged[merged['Transaction type'].str.contains('YOU SOLD', na=False)].sort_values('settlement_date').copy()
-    buys['remaining'] = buys['shares']
-    allocs = []
-    for _, sale in sells.iterrows():
-        sale_investment = sale.get('Investment name') if 'Investment name' in sale.index else None
-        qty = abs(sale['shares'])
-        price_per = sale['amount_pln'] / qty if qty else 0
-        available_qty = _open_buy_lots(buys, sale_investment)['remaining'].sum()
-        check_fifo_sale_not_oversell(sale['settlement_date'], qty, available_qty)
-        while qty > 0:
-            open_lots = _open_buy_lots(buys, sale_investment)
-            if not check_fifo_open_lots_available(sale['settlement_date'], qty, has_open_lots=not open_lots.empty):
-                break
-            idx = open_lots.index.min()
-            lot = buys.loc[idx]
-            match = min(qty, lot['remaining'])
-            cost_per = (-lot['amount_pln']) / lot['shares'] if lot['shares'] else 0
-            allocs.append({
-                'proceeds': round(match * price_per, 2),
-                'cost':     round(match * cost_per,   2),
-                'include_in_total': (year is None or year == sale['settlement_date'].year)
-            })
-            buys.at[idx, 'remaining'] -= match
-            qty -= match
-    total_proceeds = sum(a['proceeds'] for a in allocs if a['include_in_total'])
-    total_costs    = sum(a['cost']     for a in allocs if a['include_in_total'])
+    allocs = _match_fifo_lots(merged, year)
+    total_proceeds = sum(a.proceeds_pln for a in allocs)
+    total_costs    = sum(a.cost_pln     for a in allocs)
     total_gain     = round(total_proceeds - total_costs, 2)
     logging.info("FIFO: matched %d lots; Gain PLN: %.2f", len(allocs), total_gain)
     return total_proceeds, total_costs, total_gain
@@ -363,44 +400,12 @@ def _filter_by_identifier(
     return df
 
 
-def process_custom(
+def _match_custom_lots(
     merged: pd.DataFrame,
     custom_summary_path: Union[str, List[str]],
     year: Optional[int] = None,
-    nbp_rates: Optional[pd.DataFrame] = None,  # kept for API compatibility; unused
-) -> Tuple[float, float, float]:
-    """Match stock sales to specific lots using a Fidelity custom summary file.
-
-    Reads one or more tab-separated summary files (e.g. stock-sales.txt) with
-    columns: 'Date sold or transferred', 'Date acquired', 'Quantity',
-    'Stock source', etc. Each row identifies a specific lot to match against
-    the transaction history.
-
-    Cost basis logic:
-      - 'RS' (RSU): cost is always 0.0 under Polish art. 30b. The 'Cost basis'
-        column in Fidelity exports reflects the US FMV-at-vest amount (ordinary
-        income already recognized in the US), which is not a deductible cost
-        in the Polish tax calculation. The value is ignored entirely.
-      - 'SP' (ESPP) with parseable 'Cost basis': cost basis converted to PLN
-        using the matching buy transaction's exchange rate.
-      - 'SP' / other without parseable 'Cost basis': cost derived from the
-        matching buy transaction's amount_pln.
-
-    Sale and buy lookups try trade_date first, then fall back to
-    settlement_date, to handle date ambiguity in Fidelity exports.
-
-    Args:
-        merged: Transaction DataFrame (output of merge_with_rates), must include
-                'trade_date', 'settlement_date', 'Transaction type', 'shares',
-                and 'amount_pln'.
-        custom_summary_path: Path (or list of paths) to tab-separated custom
-                summary TXT file(s).
-        year: If set, only rows matched to sales settling in this year are included.
-        nbp_rates: Unused; kept for API compatibility.
-
-    Returns:
-        Tuple of (total_proceeds, total_costs, total_gain) in PLN.
-    """
+) -> List[CapitalGainAlloc]:
+    """Core custom-lot matching — returns per-lot detail for process_custom and reporting."""
     # normalize dates for matching
     merged['trade_date_norm'] = merged['trade_date'].dt.normalize()
     merged['settlement_norm'] = merged['settlement_date'].dt.normalize()
@@ -438,7 +443,7 @@ def process_custom(
     check_custom_sale_date_quantities(custom, merged, year=year)
     check_custom_acquired_quantities(custom, merged)
 
-    allocs = []
+    allocs: List[CapitalGainAlloc] = []
     for _, row in custom.iterrows():
         sale_date = row['Date sold norm']
         acq_date  = row['Date acquired'].normalize()
@@ -478,17 +483,25 @@ def process_custom(
             continue
         sale = sale_tx.iloc[0]
         sale_investment = sale.get('Investment name') if 'Investment name' in sale.index else None
-        sell_rate = sale['rate']
-        if pd.notna(reported_proceeds_usd) and reported_proceeds_usd > 0:
+        sell_rate = sale.get('rate')
+        if pd.notna(reported_proceeds_usd) and reported_proceeds_usd > 0 and pd.notna(sell_rate):
             proceeds = round(float(reported_proceeds_usd) * float(sell_rate), 2)
+            proceeds_usd = float(reported_proceeds_usd)
         elif len(sale_tx) > 1:
             total_pln = sale_tx['amount_pln'].sum()
             total_shares = sale_tx['shares'].abs().sum()
             price_per = total_pln / total_shares if total_shares else 0
             proceeds = round(qty * price_per, 2)
+            if 'amount_usd' in sale_tx.columns:
+                price_per_usd = float(sale_tx['amount_usd'].sum()) / float(total_shares) if total_shares else 0
+            else:
+                price_per_usd = 0.0
+            proceeds_usd = round(qty * price_per_usd, 2)
         else:
             price_per = sale['amount_pln'] / abs(sale['shares']) if sale['shares'] else 0
             proceeds = round(qty * price_per, 2)
+            price_per_usd = float(sale.get('amount_usd') or 0) / abs(sale['shares']) if sale['shares'] else 0
+            proceeds_usd = round(qty * price_per_usd, 2)
 
         # determine cost
         # RS (RSU) lots: cost is always 0.0 under Polish art. 30b.  The 'Cost basis'
@@ -522,6 +535,7 @@ def process_custom(
 
         if source == 'RS':
             cost = 0.0
+            cost_usd = 0.0
         elif pd.notna(reported_cost_basis_usd):
             if reported_cost_basis_usd < 0:
                 logging.error(
@@ -538,6 +552,7 @@ def process_custom(
                 )
                 continue
             cost = round(float(reported_cost_basis_usd) * float(buy['rate']), 2)
+            cost_usd = float(reported_cost_basis_usd)
         else:
             if source == 'SP':
                 logging.warning(
@@ -547,11 +562,79 @@ def process_custom(
                 )
             cost_per = (-buy['amount_pln']) / buy['shares'] if buy['shares'] else 0
             cost     = round(qty * cost_per, 2)
+            cost_per_usd = float(-(buy.get('amount_usd') or 0)) / buy['shares'] if buy['shares'] else 0
+            cost_usd = round(qty * cost_per_usd, 2)
 
-        allocs.append({'proceeds': proceeds, 'cost': cost})
+        alloc_source = 'RSU' if source == 'RS' else ('ESPP' if source == 'SP' else 'MARKET')
+        buy_rate = buy.get('rate') if buy is not None else None
+        buy_rate_date = buy.get('rate_date') if buy is not None else None
+        buy_settlement = buy.get('settlement_date') if buy is not None else None
+        sell_rate_date = sale.get('rate_date')
+        proceeds_usd_per_share = proceeds_usd / qty if qty else 0.0
+        cost_usd_per_share = cost_usd / qty if qty else 0.0
+        allocs.append(CapitalGainAlloc(
+            sale_settlement_date=sale['settlement_date'].date(),
+            buy_settlement_date=buy_settlement.date() if pd.notna(buy_settlement) else None,
+            security=str(sale_investment) if pd.notna(sale_investment) else '',
+            quantity=qty,
+            proceeds_usd_per_share=proceeds_usd_per_share,
+            proceeds_usd=proceeds_usd,
+            sale_nbp_rate_date=sell_rate_date.date() if pd.notna(sell_rate_date) else None,
+            sale_nbp_rate=float(sell_rate) if pd.notna(sell_rate) else 0.0,
+            proceeds_pln=proceeds,
+            cost_usd_per_share=cost_usd_per_share,
+            cost_usd=cost_usd,
+            buy_nbp_rate_date=buy_rate_date.date() if pd.notna(buy_rate_date) else None,
+            buy_nbp_rate=float(buy_rate) if pd.notna(buy_rate) else None,
+            cost_pln=cost,
+            gain_pln=round(proceeds - cost, 2),
+            source=alloc_source,
+        ))
 
-    total_proceeds = sum(a['proceeds'] for a in allocs)
-    total_costs    = sum(a['cost']     for a in allocs)
+    return allocs
+
+
+def process_custom(
+    merged: pd.DataFrame,
+    custom_summary_path: Union[str, List[str]],
+    year: Optional[int] = None,
+    nbp_rates: Optional[pd.DataFrame] = None,  # kept for API compatibility; unused
+) -> Tuple[float, float, float]:
+    """Match stock sales to specific lots using a Fidelity custom summary file.
+
+    Reads one or more tab-separated summary files (e.g. stock-sales.txt) with
+    columns: 'Date sold or transferred', 'Date acquired', 'Quantity',
+    'Stock source', etc. Each row identifies a specific lot to match against
+    the transaction history.
+
+    Cost basis logic:
+      - 'RS' (RSU): cost is always 0.0 under Polish art. 30b. The 'Cost basis'
+        column in Fidelity exports reflects the US FMV-at-vest amount (ordinary
+        income already recognized in the US), which is not a deductible cost
+        in the Polish tax calculation. The value is ignored entirely.
+      - 'SP' (ESPP) with parseable 'Cost basis': cost basis converted to PLN
+        using the matching buy transaction's exchange rate.
+      - 'SP' / other without parseable 'Cost basis': cost derived from the
+        matching buy transaction's amount_pln.
+
+    Sale and buy lookups try trade_date first, then fall back to
+    settlement_date, to handle date ambiguity in Fidelity exports.
+
+    Args:
+        merged: Transaction DataFrame (output of merge_with_rates), must include
+                'trade_date', 'settlement_date', 'Transaction type', 'shares',
+                and 'amount_pln'.
+        custom_summary_path: Path (or list of paths) to tab-separated custom
+                summary TXT file(s).
+        year: If set, only rows matched to sales settling in this year are included.
+        nbp_rates: Unused; kept for API compatibility.
+
+    Returns:
+        Tuple of (total_proceeds, total_costs, total_gain) in PLN.
+    """
+    allocs = _match_custom_lots(merged, custom_summary_path, year)
+    total_proceeds = sum(a.proceeds_pln for a in allocs)
+    total_costs    = sum(a.cost_pln     for a in allocs)
     total_gain     = round(total_proceeds - total_costs, 2)
     logging.info("Custom (by specific lots): matched %d lots; Gain PLN: %.2f", len(allocs), total_gain)
     return total_proceeds, total_costs, total_gain
@@ -564,6 +647,51 @@ def _is_fund_like_investment(investment_name: object) -> bool:
     name = str(investment_name).upper()
     fund_markers = ("FUND", "MMKT", "MONEY MARKET", "CASH RESERVES")
     return any(marker in name for marker in fund_markers)
+
+
+def _collect_dividend_rows(merged: pd.DataFrame, year: Optional[int] = None) -> List[DividendRow]:
+    """Extract per-row dividend detail for reporting.
+
+    Each DIVIDEND RECEIVED row is matched with its same-date NON-RESIDENT TAX
+    DIVIDEND row (if any) by settlement_date and Investment name.
+    """
+    df = merged
+    if year is not None:
+        df = merged[merged['settlement_date'].dt.year == year]
+
+    div_rows = df[df['Transaction type'] == 'DIVIDEND RECEIVED']
+    tax_mask = (
+        df['Transaction type'].str.contains('NON-RESIDENT TAX', na=False) &
+        df['Transaction type'].str.contains('DIVIDEND', na=False)
+    )
+    tax_rows = df[tax_mask]
+
+    result: List[DividendRow] = []
+    for _, div in div_rows.iterrows():
+        div_date = div['settlement_date']
+        inv_name = div.get('Investment name') if 'Investment name' in div.index else None
+
+        on_date = tax_rows[tax_rows['settlement_date'] == div_date]
+        if 'Investment name' in on_date.columns and pd.notna(inv_name):
+            on_date = on_date[on_date['Investment name'] == inv_name]
+
+        foreign_tax_pln = abs(round(float(on_date['amount_pln'].sum()), 2)) if not on_date.empty else 0.0
+        foreign_tax_usd = abs(round(float(on_date['amount_usd'].sum()), 2)) if not on_date.empty else 0.0
+
+        rate_date = div.get('rate_date')
+        result.append(DividendRow(
+            date=div_date.date(),
+            security=str(inv_name) if pd.notna(inv_name) else '',
+            kind='fund' if _is_fund_like_investment(inv_name) else 'equity',
+            amount_usd=abs(float(div.get('amount_usd') or 0)),
+            nbp_rate_date=rate_date.date() if pd.notna(rate_date) else None,
+            nbp_rate=float(div.get('rate') or 0),
+            amount_pln=abs(float(div.get('amount_pln') or 0)),
+            foreign_tax_usd=foreign_tax_usd,
+            foreign_tax_pln=foreign_tax_pln,
+        ))
+
+    return result
 
 
 def compute_section_g_income_components(merged: pd.DataFrame, year: Optional[int] = None) -> Dict[str, float]:
@@ -819,6 +947,7 @@ def calculate_pit38(
     year: int = 2024,
     method: str = 'fifo',
     custom_summary: Optional[List[str]] = None,
+    report_dir: str = 'output',
 ) -> PIT38Fields:
     """Run the full PIT-38 calculation pipeline.
 
@@ -828,6 +957,7 @@ def calculate_pit38(
         method: 'fifo' or 'custom' lot matching method.
         custom_summary: List of paths to custom summary TXT files.
                 Required when method='custom'; use [] in non-custom flows.
+        report_dir: Directory where the CSV report is written.
 
     Returns:
         PIT38Fields with PIT-38/PIT-ZG values and report metadata.
@@ -864,11 +994,21 @@ def calculate_pit38(
     custom_summary_paths = custom_summary or []
 
     if method == 'fifo':
-        total_proceeds, total_costs, total_gain = process_fifo(merged, year=year)
+        allocs = _match_fifo_lots(merged, year=year)
     else:
         if not custom_summary_paths:
             raise ValueError("custom_summary is required when method='custom'")
-        total_proceeds, total_costs, total_gain = process_custom(merged, custom_summary_paths, year=year, nbp_rates=nbp_rates)
+        allocs = _match_custom_lots(merged, custom_summary_paths, year=year)
+
+    total_proceeds = sum(a.proceeds_pln for a in allocs)
+    total_costs    = sum(a.cost_pln     for a in allocs)
+    total_gain     = round(total_proceeds - total_costs, 2)
+    logging.info(
+        "%s: matched %d lots; Gain PLN: %.2f",
+        'FIFO' if method == 'fifo' else 'Custom',
+        len(allocs),
+        total_gain,
+    )
 
     section_g = compute_section_g_income_components(merged, year=year)
     logging.info(
@@ -880,7 +1020,7 @@ def calculate_pit38(
     )
     foreign_tax_capital_gains = compute_foreign_tax_capital_gains(merged, year=year)
 
-    return calculate_pit38_fields(
+    pit38_fields = calculate_pit38_fields(
         total_proceeds,
         total_costs,
         total_gain,
@@ -891,3 +1031,8 @@ def calculate_pit38(
         section_g_fund_distributions=section_g['section_g_fund_distributions'],
         year=year,
     )
+
+    div_rows = _collect_dividend_rows(merged, year=year)
+    write_reports(ReportData(year=year, capital_gains=allocs, dividends=div_rows, pit38=pit38_fields), report_dir)
+
+    return pit38_fields

@@ -341,7 +341,7 @@ class TestPrintedFormLayout:
         lines = capsys.readouterr().out.splitlines()
 
         def _line(poz_prefix):
-            return next(l for l in lines if poz_prefix in l)
+            return next(line for line in lines if poz_prefix in line)
 
         # Raw fields — must have '<-- enter'
         assert "<-- enter" in _line("Poz. 22")
@@ -351,11 +351,11 @@ class TestPrintedFormLayout:
         assert "<-- enter" in _line("Poz. 45")
         assert "<-- enter" in _line("Poz. 46")
         # PIT-ZG
-        for l in lines:
-            if "Poz. 29 (Dochod" in l:
-                assert "<-- enter" in l
-            if "Poz. 30 (Podatek zaplacony" in l:
-                assert "<-- enter" in l
+        for line in lines:
+            if "Poz. 29 (Dochod" in line:
+                assert "<-- enter" in line
+            if "Poz. 30 (Podatek zaplacony" in line:
+                assert "<-- enter" in line
 
         # Auto-calculated fields — must NOT have '<-- enter'
         assert "<-- enter" not in _line("Poz. 26")
@@ -371,7 +371,7 @@ class TestPrintedFormLayout:
         lines = capsys.readouterr().out.splitlines()
 
         def _line(poz_prefix):
-            return next(l for l in lines if poz_prefix in l)
+            return next(line for line in lines if poz_prefix in line)
 
         # Raw fields — must have '<-- enter'
         assert "<-- enter" in _line("Poz. 22")

@@ -31,6 +31,12 @@ def main() -> None:
         choices=SUPPORTED_PIT38_FORM_YEARS,
         help='Tax year to process (supported PIT-38 layouts only)',
     )
+    parser.add_argument(
+        '--output',
+        default='output',
+        metavar='DIR',
+        help='Directory for the generated CSV report',
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
@@ -52,5 +58,6 @@ def main() -> None:
         year=args.year,
         method=args.method,
         custom_summary=custom_mode_stock_sales_txt_files,
+        report_dir=args.output,
     )
     result.print()
