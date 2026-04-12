@@ -13,6 +13,7 @@ dependencies = [
 
 [project.scripts]
 fidelity2pit38 = "fidelity2pit38.cli:main"
+tests = "pytest:console_main"
 
 [build-system]
 requires = ["hatchling"]
@@ -23,3 +24,4 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.4",
 ]
+

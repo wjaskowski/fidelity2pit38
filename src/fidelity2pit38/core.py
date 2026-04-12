@@ -751,13 +751,6 @@ def compute_dividends_and_tax(merged: pd.DataFrame, year: Optional[int] = None) 
         Tuple of (section_g_income_pln, foreign_tax_section_g_pln).
     """
     components = compute_section_g_income_components(merged, year=year)
-    logging.info(
-        "Section G income PLN: %.2f (equity dividends: %.2f; fund distributions: %.2f); Foreign tax PLN: %.2f",
-        components['section_g_total_income'],
-        components['section_g_equity_dividends'],
-        components['section_g_fund_distributions'],
-        components['section_g_foreign_tax'],
-    )
     return components['section_g_total_income'], components['section_g_foreign_tax']
 
 
@@ -1012,13 +1005,6 @@ def calculate_pit38(
     )
 
     section_g = compute_section_g_income_components(merged, year=year)
-    logging.info(
-        "Section G income PLN: %.2f (equity dividends: %.2f; fund distributions: %.2f); Foreign tax PLN: %.2f",
-        section_g['section_g_total_income'],
-        section_g['section_g_equity_dividends'],
-        section_g['section_g_fund_distributions'],
-        section_g['section_g_foreign_tax'],
-    )
     foreign_tax_capital_gains = compute_foreign_tax_capital_gains(merged, year=year)
 
     pit38_fields = calculate_pit38_fields(

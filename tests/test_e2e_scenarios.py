@@ -399,7 +399,8 @@ class TestCalculatePit38FullPipelineFifo:
         ])
 
         with _mock_urlopen_for(rates_2024):
-            result = calculate_pit38(tx_csv=csv_path, year=2024, method="fifo")
+            result = calculate_pit38(tx_csv=csv_path, year=2024, method="fifo",
+                                     report_dir=str(tmp_path))
 
         assert result.year == 2024
 
@@ -447,6 +448,7 @@ class TestCalculatePit38FullPipelineCustom:
             result = calculate_pit38(
                 tx_csv=csv_path, year=2024, method="custom",
                 custom_summary=[summary_path],
+                report_dir=str(tmp_path),
             )
 
         # Sell settles Dec-18, rate_date Dec-17 → rate 4.0600
@@ -681,10 +683,11 @@ class TestMultiStockFifoIsolation:
 class TestSampleDataFullPipeline:
     """Run the full pipeline on data-sample/ files with mocked NBP."""
 
-    def test_sample_data_fifo(self, example_tx_csv_path, mock_nbp_read_csv):
+    def test_sample_data_fifo(self, tmp_path, example_tx_csv_path, mock_nbp_read_csv):
         with mock_nbp_read_csv:
             result = calculate_pit38(
                 tx_csv=example_tx_csv_path, year=2024, method="fifo",
+                report_dir=str(tmp_path),
             )
 
         assert result.year == 2024
@@ -704,12 +707,13 @@ class TestSampleDataFullPipeline:
         assert result["section_g_fund_distributions"] > Decimal("0")
 
     def test_sample_data_custom(
-        self, example_tx_csv_path, example_custom_summary_path, mock_nbp_read_csv,
+        self, tmp_path, example_tx_csv_path, example_custom_summary_path, mock_nbp_read_csv,
     ):
         with mock_nbp_read_csv:
             result = calculate_pit38(
                 tx_csv=example_tx_csv_path, year=2024, method="custom",
                 custom_summary=[example_custom_summary_path],
+                report_dir=str(tmp_path),
             )
 
         assert result.year == 2024
@@ -840,6 +844,7 @@ class TestMultiCsvFullPipeline:
         with _mock_urlopen_for(rates_2024):
             result = calculate_pit38(
                 tx_csv=[csv1, csv2], year=2024, method="fifo",
+                report_dir=str(tmp_path),
             )
 
         # Buy: Sep-13 → T+1 settles Sep-16, rate_date Sep-13 → rate 3.8950
