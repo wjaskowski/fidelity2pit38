@@ -13,25 +13,30 @@ Date,Security,Type,Amount USD,NBP Rate Date,NBP Rate,Amount PLN,Foreign Tax USD,
 TOTAL,,,14.90,,,55.33,2.24,8.32
 
 PIT-38 SUMMARY (year 2025)
-Field,Description,Value PLN
-poz22,Poz. 22 - Inne przychody (przychody ze zbycia),48392.00
-poz23,Poz. 23 - Koszty uzyskania przychodow,16082.14
-poz26,Poz. 26 - Przychod - razem,48392.00
-poz27,Poz. 27 - Koszty uzyskania - razem,16082.14
-poz28,Poz. 28 - Dochod,32309.86
-poz29,Poz. 29 - Strata,0.00
-poz30,Poz. 30 - Straty z lat ubieglych,0.00
-poz31,Poz. 31 - Podstawa opodatkowania,32310
-poz32,Poz. 32 - Stawka podatku,19%
-poz33,Poz. 33 - Podatek,6138.90
-poz34,Poz. 34 - Podatek zaplacony za granica (art. 30b),0.00
-poz35,Poz. 35 - Podatek nalezny,6139.00
-poz46,Poz. 46 - Podatek niepobrany przez platnika,0.00
-poz47,Poz. 47 - Podatek 19% od przychodow czesci G,10.52
-poz48,Poz. 48 - Podatek zaplacony za granica (Section G),8.32
-poz49,Poz. 49 - Do zaplaty (Section G),2.20
-pitzg29,PIT-ZG Poz. 29 - Dochod z art. 30b ust.5 i 5b,32309.86
-pitzg30,PIT-ZG Poz. 30 - Podatek zaplacony za granica,0.00
-diag_g,Section G - Total income (diagnostics),55.33
-diag_eq,Section G - Equity dividends (diagnostics),0.00
-diag_fd,Section G - Fund distributions (diagnostics),55.33
+
+Section C/D – Dochody ze zbycia papierow wartosciowych (art. 30b)
+Description,Value PLN
+Poz. 22 (Inne przychody),48392.00
+Poz. 23 (Koszty uzyskania przychodow),16082.14
+Poz. 26 (Przychod - razem),48392.00
+Poz. 27 (Koszty uzyskania - razem),16082.14
+Poz. 28 (Dochod),32309.86
+Poz. 29 (Strata),0.00
+Poz. 30 (Straty z lat ubieglych),0.00
+Poz. 31 (Podstawa opodatkowania),32310.00
+Poz. 32 (Stawka podatku),19%
+Poz. 33 (Podatek),6138.90
+Poz. 34 (Podatek zaplacony za granica),0.00
+Poz. 35 (Podatek nalezny),6139.00
+
+Section G – Zryczaltowany podatek (art. 30a ust. 1 pkt 1-5)
+Description,Value PLN
+Poz. 46 (Podatek niepobrany przez platnika),0.00
+Poz. 47 (Podatek 19% od przychodow czesci G),10.52
+Poz. 48 (Podatek zaplacony za granica),8.32
+Poz. 49 (Do zaplaty),2.20
+
+PIT-ZG – Dochody zagraniczne
+Description,Value PLN
+Poz. 29 (Dochod z art. 30b ust.5 i 5b),32309.86
+Poz. 30 (Podatek zaplacony za granica),0.00

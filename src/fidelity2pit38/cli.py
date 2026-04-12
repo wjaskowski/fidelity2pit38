@@ -37,6 +37,11 @@ def main() -> None:
         metavar='DIR',
         help='Directory for the generated CSV report',
     )
+    parser.add_argument(
+        '--no-open',
+        action='store_true',
+        help='Do not open the HTML report in a browser after generation',
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
@@ -59,5 +64,6 @@ def main() -> None:
         method=args.method,
         custom_summary=custom_mode_stock_sales_txt_files,
         report_dir=args.output,
+        open_browser=not args.no_open,
     )
     result.print()
