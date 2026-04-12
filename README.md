@@ -58,49 +58,80 @@ Options:
 
 ```sh
 uv run fidelity2pit38 --data-dir my-data/   # different data directory
-uv run fidelity2pit38 --year 2024            # specific tax year
+uv run fidelity2pit38 --year 2025            # specific tax year
 uv run fidelity2pit38 --method custom        # use custom lot matching (requires stock-sales*.txt)
 ```
 
 Supported PIT-38 layout years right now: `2024`, `2025` (Section G line numbers differ by year).
 
-### Example output (year 2024 layout)
+### Reports
 
-The output uses color: section headers in blue, fields you must enter manually highlighted in yellow with a green `<-- enter` marker, auto-calculated fields in default color.
+After each run the tool writes two files to `output/` (override with `--output DIR`):
+
+| File | Contents |
+|---|---|
+| `pit38_report_YYYY.csv` | Per-lot capital gains, per-dividend details, PIT-38 field summary — machine-readable audit trail |
+| `pit38_report_YYYY.html` | Same data as a styled HTML page, opens automatically in your browser |
+
+Sample output (generated from `data-sample/`):
+[pit38_report_2025.csv](output-sample/pit38_report_2025.csv) &nbsp;·&nbsp; [pit38_report_2025.html](output-sample/pit38_report_2025.html)
+
+### Example output (year 2025 layout)
+
+The output uses color: section headers in blue, fields you must enter manually highlighted in green with a `<-- enter` marker, auto-calculated fields in grey.
 
 In the example below, green lines (`+`) are the fields you need to fill in:
 
+```sh
+uv run fidelity2pit38 --data-dir data-sample --year 2025
+```
+
 ```diff
-PIT-38 for year 2024:
+PIT-38 for year 2025  |  Method: FIFO:
 (<-- enter = fill in the tax form; remaining fields are typically auto-calculated)
 
  Czesc C/D - Dochody ze zbycia papierow wartosciowych (art. 30b):
-+  Poz. 22 (Inne przychody): 34033.91 PLN  <-- enter
-+  Poz. 23 (Koszty uzyskania przychodow): 8865.00 PLN  <-- enter
-   Poz. 26 (Dochod): 25168.91 PLN
-   Poz. 27 (Strata): 0.00 PLN
-+  Poz. 28 (Straty z lat ubieglych): 0.00 PLN  <-- enter
-   Poz. 29 (Podstawa opodatkowania): 25169.00 PLN
-   Poz. 30 (Stawka podatku): 19%
-   Poz. 31 (Podatek): 4782.11 PLN
-+  Poz. 32 (Podatek zaplacony za granica): 0.00 PLN  <-- enter
-   Poz. 33 (Podatek nalezny): 4782.00 PLN
++  Poz. 22 (Inne przychody): 48392.00 PLN  <-- enter
++  Poz. 23 (Koszty uzyskania przychodow): 16082.14 PLN  <-- enter
+   Poz. 26 (Przychod - razem): 48392.00 PLN
+   Poz. 27 (Koszty uzyskania - razem): 16082.14 PLN
+   Poz. 28 (Dochod): 32309.86 PLN
+   Poz. 29 (Strata): 0.00 PLN
++  Poz. 30 (Straty z lat ubieglych): 0.00 PLN  <-- enter
+   Poz. 31 (Podstawa opodatkowania): 32310.00 PLN
+   Poz. 32 (Stawka podatku): 19%
+   Poz. 33 (Podatek): 6138.90 PLN
++  Poz. 34 (Podatek zaplacony za granica): 0.00 PLN  <-- enter
+   Poz. 35 (Podatek nalezny): 6139.00 PLN
 
  Czesc G - Zryczaltowany podatek (art. 30a ust. 1 pkt 1-5):
-+  Poz. 45 (Podatek 19% od przychodow czesci G): 9.97 PLN  <-- enter
-+  Poz. 46 (Podatek zaplacony za granica): 7.86 PLN  <-- enter
-   Poz. 47 (Do zaplaty): 2.11 PLN
++  Poz. 46 (Podatek niepobrany przez platnika): 0.00 PLN  <-- enter
++  Poz. 47 (Podatek 19% od przychodow czesci G): 10.52 PLN  <-- enter
++  Poz. 48 (Podatek zaplacony za granica): 8.32 PLN  <-- enter
+   Poz. 49 (Do zaplaty): 2.20 PLN
 
  PIT-ZG (dochody zagraniczne):
-+  Poz. 29 (Dochod z art. 30b ust.5 i 5b): 25168.91 PLN  <-- enter
++  Poz. 29 (Dochod z art. 30b ust.5 i 5b): 32309.86 PLN  <-- enter
 +  Poz. 30 (Podatek zaplacony za granica): 0.00 PLN  <-- enter
 ```
 
 ## Running tests
 
 ```sh
-uv run --group test pytest
+uv run tests
 ```
+
+## Contributing
+
+CI runs on every push and pull request (lint + tests must pass before merging).
+
+To get the same checks locally before you push, install the git pre-commit hook once after cloning:
+
+```sh
+sh scripts/install-hooks.sh
+```
+
+The hook runs `ruff`, `pytest`, regenerates `output-sample/` and updates the README example automatically on each commit.
 
 ## Documentation
 

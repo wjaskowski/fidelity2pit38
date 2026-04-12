@@ -1,5 +1,8 @@
+PIT-38 Report 2025
+Method: FIFO
+
 CAPITAL GAINS (Section C/D - art. 30b)
-Sale Date,Buy Date,Security,Qty,Proceeds USD/share,Proceeds USD,Sale NBP Rate Date,Sale NBP Rate,Proceeds PLN,Cost USD/share,Cost USD,Buy NBP Rate Date,Buy NBP Rate,Cost PLN,Gain/Loss PLN,Source
+Date Sold,Date Acquired,Security,Shares,Proceeds/share ($),Proceeds ($),Sale NBP Rate Date,Sale NBP Rate,Proceeds (PLN),Cost/share ($),Cost ($),Buy NBP Rate Date,Buy NBP Rate,Cost (PLN),Gain/Loss (PLN),Acquisition
 2025-02-19,2024-09-16,ACME TECHNOLOGY INC. COMMON STOCK,25.0,135.0000,3375.00,2025-02-18,3.9729,13408.54,52.0000,1300.00,2024-09-13,3.8659,5025.67,8382.87,ESPP
 2025-10-14,2024-09-16,ACME TECHNOLOGY INC. COMMON STOCK,55.0,120.0000,6600.00,2025-10-13,3.6763,24263.58,52.0000,2860.00,2024-09-13,3.8659,11056.47,13207.11,ESPP
 2025-10-14,2024-12-16,ACME TECHNOLOGY INC. COMMON STOCK,10.0,120.0000,1200.00,2025-10-13,3.6763,4411.56,0.0000,0.00,2024-12-13,4.0738,-0.00,4411.56,RSU
@@ -7,7 +10,7 @@ Sale Date,Buy Date,Security,Qty,Proceeds USD/share,Proceeds USD,Sale NBP Rate Da
 TOTAL,,,105.0,,12900.00,,,48392.00,,4160.00,,,16082.14,32309.86,
 
 DIVIDENDS & FOREIGN TAX (Section G - art. 30a)
-Date,Security,Type,Amount USD,NBP Rate Date,NBP Rate,Amount PLN,Foreign Tax USD,Foreign Tax PLN
+Payment Date,Security,Type,Amount ($),NBP Rate Date,NBP Rate,Amount (PLN),Foreign Tax ($),Foreign Tax (PLN)
 2025-03-31,FIDELITY GOVERNMENT CASH RESERVES,fund,6.20,2025-03-28,3.8817,24.07,0.93,3.61
 2025-12-31,FIDELITY GOVERNMENT CASH RESERVES,fund,8.70,2025-12-30,3.5936,31.26,1.31,4.71
 TOTAL,,,14.90,,,55.33,2.24,8.32

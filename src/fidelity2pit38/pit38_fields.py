@@ -40,7 +40,7 @@ class PIT38Fields:
     def __getitem__(self, key: str):
         return getattr(self, key)
 
-    def print(self) -> None:
+    def print(self, method: str = "") -> None:
         """Print PIT-38/PIT-ZG fields in CLI-friendly, coloured format."""
         from rich.console import Console
         from rich.text import Text
@@ -52,6 +52,9 @@ class PIT38Fields:
         title = Text()
         title.append("PIT-38 for year ", style="bold cyan")
         title.append(str(self.year), style="bold cyan underline")
+        if method:
+            title.append("  |  Method: ", style="bold cyan")
+            title.append(method.upper(), style="bold cyan")
         console.print(title)
 
         legend = Text()

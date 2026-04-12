@@ -1,0 +1,40 @@
+PIT-38 Report 2024
+Method: FIFO
+
+CAPITAL GAINS (Section C/D - art. 30b)
+Date Sold,Date Acquired,Security,Shares,Proceeds/share ($),Proceeds ($),Sale NBP Rate Date,Sale NBP Rate,Proceeds (PLN),Cost/share ($),Cost ($),Buy NBP Rate Date,Buy NBP Rate,Cost (PLN),Gain/Loss (PLN),Acquisition
+2024-06-17,2024-03-19,ACME TECHNOLOGY INC. COMMON STOCK,20.0,155.0000,3100.00,2024-06-14,4.0760,12635.60,45.0000,900.00,2024-03-18,3.9528,3557.52,9078.08,ESPP
+2024-12-17,2024-03-19,ACME TECHNOLOGY INC. COMMON STOCK,30.0,178.0000,5340.00,2024-12-16,4.0571,21664.91,45.0000,1350.00,2024-03-18,3.9528,5336.28,16328.63,ESPP
+TOTAL,,,50.0,,8440.00,,,34300.51,,2250.00,,,8893.80,25406.71,
+
+DIVIDENDS & FOREIGN TAX (Section G - art. 30a)
+Payment Date,Security,Type,Amount ($),NBP Rate Date,NBP Rate,Amount (PLN),Foreign Tax ($),Foreign Tax (PLN)
+2024-03-29,FIDELITY GOVERNMENT CASH RESERVES,fund,4.20,2024-03-28,4.0081,16.83,0.63,2.53
+2024-12-31,FIDELITY GOVERNMENT CASH RESERVES,fund,8.75,2024-12-30,4.0960,35.84,1.31,5.37
+TOTAL,,,12.95,,,52.67,1.94,7.90
+
+PIT-38 SUMMARY (year 2024)
+
+Section C/D – Dochody ze zbycia papierow wartosciowych (art. 30b)
+Description,Value PLN
+Poz. 22 (Inne przychody),34300.51
+Poz. 23 (Koszty uzyskania przychodow),8893.80
+Poz. 26 (Dochod),25406.71
+Poz. 27 (Strata),0.00
+Poz. 28 (Straty z lat ubieglych),0.00
+Poz. 29 (Podstawa opodatkowania),25407.00
+Poz. 30 (Stawka podatku),19%
+Poz. 31 (Podatek),4827.33
+Poz. 32 (Podatek zaplacony za granica),0.00
+Poz. 33 (Podatek nalezny),4827.00
+
+Section G – Zryczaltowany podatek (art. 30a ust. 1 pkt 1-5)
+Description,Value PLN
+Poz. 45 (Podatek 19% od przychodow czesci G),10.01
+Poz. 46 (Podatek zaplacony za granica),7.89
+Poz. 47 (Do zaplaty),2.12
+
+PIT-ZG – Dochody zagraniczne
+Description,Value PLN
+Poz. 29 (Dochod z art. 30b ust.5 i 5b),25406.71
+Poz. 30 (Podatek zaplacony za granica),0.00

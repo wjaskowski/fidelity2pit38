@@ -1020,6 +1020,7 @@ def calculate_pit38(
     )
 
     div_rows = _collect_dividend_rows(merged, year=year)
-    write_reports(ReportData(year=year, capital_gains=allocs, dividends=div_rows, pit38=pit38_fields), report_dir, open_browser=open_browser)
+    method_label = 'FIFO' if method == 'fifo' else 'Custom'
+    write_reports(ReportData(year=year, capital_gains=allocs, dividends=div_rows, pit38=pit38_fields, method=method_label), report_dir, open_browser=open_browser)
 
     return pit38_fields
