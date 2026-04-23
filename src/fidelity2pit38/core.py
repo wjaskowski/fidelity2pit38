@@ -412,7 +412,9 @@ def _match_custom_lots(
 
     paths = _as_list(custom_summary_path)
     custom_frames = [pd.read_csv(p, sep='\t', engine='python') for p in paths]
-    custom = pd.concat(custom_frames, ignore_index=True).drop_duplicates()
+    # Keep repeated rows: Fidelity can emit multiple distinct sold lots with
+    # identical visible fields, so collapsing duplicates changes proceeds/costs.
+    custom = pd.concat(custom_frames, ignore_index=True)
     custom['Date sold']     = pd.to_datetime(custom['Date sold or transferred'], format='%b-%d-%Y', errors='coerce')
     custom['Date acquired'] = pd.to_datetime(custom['Date acquired'],              format='%b-%d-%Y', errors='coerce')
     custom['Quantity']      = pd.to_numeric(custom['Quantity'],                    errors='coerce')

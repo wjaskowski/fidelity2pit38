@@ -183,3 +183,5 @@ output/
 !data-sample/*.csv
 
 .claude
+data/
+
