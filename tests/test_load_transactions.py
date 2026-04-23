@@ -78,6 +78,31 @@ def test_does_not_drop_identical_rows_in_single_csv(tmp_path):
     assert len(tx) == 2
 
 
+def test_split_fills_with_identical_size_are_not_deduplicated(tmp_path):
+    """A sell order of 100 filled as 30+30+40 must produce 3 rows (not 2).
+
+    Fidelity reports each market fill as a separate row; two fills of the
+    same size on the same day have identical visible columns but represent
+    real distinct transactions whose quantities must sum, not dedupe.
+    """
+    csv_path = tmp_path / "Transaction history split.csv"
+    csv_path.write_text(
+        "\n".join(
+            [
+                "Transaction date,Transaction type,Investment name,Shares,Amount",
+                "Jan-10-2025,YOU SOLD,ACME INC,-30.00,$450.00",
+                "Jan-10-2025,YOU SOLD,ACME INC,-30.00,$450.00",
+                "Jan-10-2025,YOU SOLD,ACME INC,-40.00,$600.00",
+            ]
+        )
+        + "\n"
+    )
+
+    tx = load_transactions(str(csv_path))
+    assert len(tx) == 3
+    assert tx["shares"].sum() == -100.0
+
+
 def test_multi_csv_overlap_raises_error(tmp_path):
     """Identical rows across different files should raise a hard error."""
     file_a = tmp_path / "Transaction history A.csv"
