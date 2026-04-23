@@ -236,6 +236,38 @@ def test_multiple_sells_same_date_no_proceeds_uses_weighted_average(tmp_path):
     assert proceeds == pytest.approx(6000.0, abs=0.01)
 
 
+def test_identical_custom_rows_must_not_be_deduplicated(tmp_path):
+    """Two legitimately-identical lot rows in the custom summary must be
+    preserved, not collapsed by drop_duplicates().
+
+    Scenario: two RSU grants of the same size vested on the same date and
+    were sold on the same date. The custom stock-sales summary then contains
+    two rows with identical Date sold / Date acquired / Quantity / Proceeds.
+    These are real distinct lots — deduplicating them under-reports the sale.
+    """
+    merged = pd.DataFrame(
+        {
+            "trade_date": pd.to_datetime(["Dec-16-2024"]),
+            "settlement_date": pd.to_datetime(["Dec-17-2024"]),
+            "Transaction type": ["YOU SOLD"],
+            "Investment name": ["ACME"],
+            "shares": [-20.0],
+            "amount_pln": [4000.0],
+            "rate": [4.0],
+        }
+    )
+    custom_file = tmp_path / "custom_duplicates.txt"
+    custom_file.write_text(
+        "Date sold or transferred\tDate acquired\tQuantity\tCost basis\tProceeds\tGain/loss\tStock source\n"
+        "Dec-16-2024\tDec-13-2024\t10.0000\twhatever\t$500.00\twhatever\tRS\n"
+        "Dec-16-2024\tDec-13-2024\t10.0000\twhatever\t$500.00\twhatever\tRS\n"
+    )
+    proceeds, costs, gain = process_custom(merged, str(custom_file), year=2024)
+    # Two lots of 10 shares each @ $500 proceeds × rate 4.0 = 2000 PLN per lot
+    # Correct total: 4000 PLN. Buggy (dedup) total: 2000 PLN.
+    assert proceeds == pytest.approx(4000.0, abs=0.01)
+
+
 def test_invalid_proceeds_falls_back_to_sell_transaction(tmp_path):
     """Non-numeric Proceeds value falls back to deriving from the sell transaction."""
     merged = pd.DataFrame(
