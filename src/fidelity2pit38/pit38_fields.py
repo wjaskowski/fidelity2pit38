@@ -2,7 +2,13 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Optional
 
-SUPPORTED_PIT38_FORM_YEARS = (2024, 2025)
+SUPPORTED_PIT38_FORM_YEARS = (2024, 2025, 2026)
+
+# Years whose official PIT-38 layout has not been published yet and which
+# provisionally reuse a previous year's field mapping. Once the official forms
+# for these years are released (typically early in the following year), give the
+# year its own branch in report._pit38_summary_sections and drop it from here.
+PROVISIONAL_PIT38_FORM_YEARS = {2026: 2025}
 
 
 def ensure_supported_pit38_form_year(year: Optional[int]) -> None:
@@ -12,6 +18,20 @@ def ensure_supported_pit38_form_year(year: Optional[int]) -> None:
         raise ValueError(
             f"PIT-38 layout mapping for year {year} is not implemented. "
             f"Supported years: {supported}."
+        )
+
+
+def warn_if_provisional_form_year(year: Optional[int]) -> None:
+    """Warn when the given year reuses an earlier year's PIT-38 layout."""
+    reused_from = PROVISIONAL_PIT38_FORM_YEARS.get(year)
+    if reused_from is not None:
+        import logging
+
+        logging.warning(
+            "PIT-38 form layout for %s is not available yet; reusing the %s "
+            "fields. Verify against the official %s form and update the mapping "
+            "once it is published (usually early in %s).",
+            year, reused_from, year, year + 1,
         )
 
 

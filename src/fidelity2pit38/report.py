@@ -498,7 +498,7 @@ def _pit38_summary_sections(pit38: PIT38Fields) -> List[Tuple[str, List[_PitRow]
             ("Poz. 46 (Podatek zaplacony za granica)",                  f"{pit38.poz46:.2f}",                      True),
             ("Poz. 47 (Do zaplaty)",                                    f"{pit38.poz47:.2f}",                      False),
         ]
-    else:  # 2025
+    else:  # 2025, 2026
         cd = [
             ("Poz. 22 (Inne przychody)",                                f"{pit38.poz22:.2f}",                      True),
             ("Poz. 23 (Koszty uzyskania przychodow)",                   f"{pit38.poz23:.2f}",                      True),
