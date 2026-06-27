@@ -5,7 +5,7 @@ import datetime
 import logging
 
 from .core import calculate_pit38, discover_transaction_files
-from .pit38_fields import SUPPORTED_PIT38_FORM_YEARS
+from .pit38_fields import SUPPORTED_PIT38_FORM_YEARS, warn_if_provisional_form_year
 
 
 def main() -> None:
@@ -45,6 +45,8 @@ def main() -> None:
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+
+    warn_if_provisional_form_year(args.year)
 
     # Discover transaction files
     transaction_history_csv_files, stock_sales_txt_files = discover_transaction_files(args.data_dir)

@@ -391,5 +391,5 @@ class TestPrintedFormLayout:
         assert "<-- enter" not in _line("Poz. 49")
 
     def test_print_raises_for_unsupported_year(self):
-        with pytest.raises(ValueError, match="Supported years: 2024, 2025"):
-            self._sample_fields(year=2026).print()
+        with pytest.raises(ValueError, match="Supported years: 2024, 2025, 2026"):
+            self._sample_fields(year=2027).print()
